@@ -43,30 +43,21 @@ export class LegalPage extends LitElement {
       </section>
 
       <section>
-        <h2 class="text-base font-medium text-base-content mb-2">Analytics — Umami</h2>
+        <h2 class="text-base font-medium text-base-content mb-2">No analytics</h2>
         <p>
-          Speeedy uses <a href="https://umami.is" target="_blank" rel="noopener" class="text-ui-muted hover:text-base-content underline underline-offset-2">Umami</a>
-          for anonymous usage analytics. Umami is cookieless and collects no personally identifiable information.
-          It records page views and click events (e.g. "opened the reader", "took the benchmark test") to help
-          understand which features are used. It does not track you across websites, does not fingerprint your
-          device, and does not share data with third parties.
-        </p>
-        <p class="mt-3 text-xs text-ui-muted">
-          Umami's privacy policy:
-          <a href="https://umami.is/privacy" target="_blank" rel="noopener" class="text-ui-muted hover:text-base-content underline underline-offset-2">umami.is/privacy</a>
+          This build of Speeedy contains no analytics or tracking scripts.
         </p>
       </section>
 
       <section>
-        <h2 class="text-base font-medium text-base-content mb-2">Hosting — Cloudflare Pages</h2>
+        <h2 class="text-base font-medium text-base-content mb-2">Hosting and fonts</h2>
         <p>
-          Speeedy is hosted on Cloudflare Pages. Cloudflare may collect standard server access logs
-          (IP address, user-agent, request timestamp) for security and performance purposes.
-          These logs are governed by Cloudflare's own privacy policy and are not accessible to the Speeedy maintainer.
+          This instance is self-hosted. The web server may keep standard access logs
+          (IP address, user-agent, request timestamp) for security and troubleshooting.
         </p>
-        <p class="mt-3 text-xs text-ui-muted">
-          Cloudflare's privacy policy:
-          <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener" class="text-ui-muted hover:text-base-content underline underline-offset-2">cloudflare.com/privacypolicy</a>
+        <p class="mt-3">
+          Fonts are loaded from Google Fonts and jsDelivr. Those services receive your IP address and
+          user-agent when the fonts are requested; no reading content is sent to them.
         </p>
       </section>
 
@@ -79,7 +70,7 @@ export class LegalPage extends LitElement {
         </p>
         <p class="mt-3">
           URL fragments are not sent to servers in standard HTTP requests, but they can be read by
-          client-side analytics scripts (including Umami), browser extensions, or anyone who receives the link.
+          client-side scripts, browser extensions, or anyone who receives the link.
           If you include a profile image, it is embedded in full inside the URL.
         </p>
         <p class="mt-3">
@@ -90,11 +81,10 @@ export class LegalPage extends LitElement {
       </section>
 
       <section>
-        <h2 class="text-base font-medium text-base-content mb-2">Feedback form</h2>
+        <h2 class="text-base font-medium text-base-content mb-2">Feedback</h2>
         <p>
-          If you submit feedback through the in-app form, your message and optional email address are sent to
-          <a href="https://formspree.io" target="_blank" rel="noopener" class="text-ui-muted hover:text-base-content underline underline-offset-2">Formspree</a>.
-          This data is used only to respond to your feedback and is not shared with third parties.
+          The feedback form does not send anything itself. It opens a prefilled issue on GitHub; nothing is
+          submitted until you post that issue yourself, under GitHub's own terms.
         </p>
       </section>
 

@@ -1,12 +1,8 @@
 import { html, LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import { ArrowRight, Heart, Zap } from "lucide";
-
-const githubIcon = (cls: string) =>
-	html`<svg class=${cls} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>`;
+import { ArrowRight, Zap } from "lucide";
 
 import { animate, hover, inView } from "motion";
-import { GITHUB_URL } from "../config.js";
 import type { ThemeName, UserProfile } from "../models/types.js";
 import { saveProfile } from "../services/storage-service.js";
 import { applyTheme, getResolvedTheme } from "../services/theme-service.js";
@@ -256,17 +252,9 @@ export class MarketingPage extends LitElement {
 			: html`<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`;
 	}
 
-	private getBadgeUrls(theme: "light" | "dark") {
-		return {
-			ufind: `https://ufind.best/badges/ufind-best-badge-${theme === "dark" ? "dark" : "light"}.svg`,
-			productHunt: `https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=speeedy&theme=${theme}`,
-		};
-	}
-
 	override render() {
 		const theme: ThemeName = this.profile?.settings?.theme ?? "system";
 		const effectiveTheme = theme === "system" ? getResolvedTheme(theme) : theme;
-		const badgeUrls = this.getBadgeUrls(effectiveTheme);
 		const themeTitle =
 			effectiveTheme === "dark" ? "Switch to light" : "Switch to dark";
 
@@ -280,9 +268,6 @@ export class MarketingPage extends LitElement {
             <span class="text-ui-body tracking-[0.25em] font-semibold text-base-content select-none uppercase">speeedy</span>
           </div>
           <div class="flex items-center gap-2">
-            <a href=${GITHUB_URL} target="_blank" rel="noopener" class="btn btn-ghost btn-sm btn-circle" title="GitHub" aria-label="GitHub">
-              ${githubIcon("w-6 h-6")}
-            </a>
             <button class="btn btn-ghost btn-sm btn-circle" title=${themeTitle} @click=${this.cycleTheme} type="button">
               ${this.themeIcon(theme)}
             </button>
@@ -349,24 +334,6 @@ export class MarketingPage extends LitElement {
               </span>
             </div>
 
-            <div data-hero-item class="mt-8 flex flex-wrap items-center justify-center gap-2">
-              <span class="inline-flex items-center gap-1.5 rounded-full border border-base-content/15 bg-base-content/5 px-3 py-1 text-ui-body tracking-wide text-ui-muted font-normal">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500/70 inline-block"></span>
-                Free forever
-              </span>
-              <span class="inline-flex items-center gap-1.5 rounded-full border border-base-content/15 bg-base-content/5 px-3 py-1 text-ui-body tracking-wide text-ui-muted font-normal">
-                <span class="w-1.5 h-1.5 rounded-full bg-sky-400/70 inline-block"></span>
-                No account
-              </span>
-              <span class="inline-flex items-center gap-1.5 rounded-full border border-base-content/15 bg-base-content/5 px-3 py-1 text-ui-body tracking-wide text-ui-muted font-normal">
-                <span class="w-1.5 h-1.5 rounded-full bg-violet-400/70 inline-block"></span>
-                Open source · MIT
-              </span>
-              <span class="inline-flex items-center gap-1.5 rounded-full border border-base-content/15 bg-base-content/5 px-3 py-1 text-ui-body tracking-wide text-ui-muted font-normal">
-                <span class="w-1.5 h-1.5 rounded-full bg-amber-400/70 inline-block"></span>
-                Reading data stays local
-              </span>
-            </div>
           </div>
 
 
@@ -559,28 +526,6 @@ export class MarketingPage extends LitElement {
           </div>
         </section>
 
-        <section class="py-16 px-6 md:px-12 border-b border-base-300/60 bg-base-200/25">
-          <div class="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-8">
-            <div data-reveal>
-              <p class="text-ui-body tracking-[0.35em] uppercase text-primary/80 mb-3 font-semibold">Open source</p>
-              <h2 class="text-ui-hero font-semibold text-base-content leading-tight mb-3">
-                MIT license, public repo.
-              </h2>
-              <p class="text-ui-body text-ui-muted leading-relaxed max-w-md">
-                Source is on GitHub. No ads or paid tiers, no tracking cookies. Reading data stays in your browser unless you export it.
-              </p>
-            </div>
-            <div class="flex flex-wrap gap-3 shrink-0" data-reveal>
-              <a href=${GITHUB_URL} target="_blank" rel="noopener" class="btn btn-outline btn-sm rounded-full px-7 gap-2">
-                ${githubIcon("w-3.5 h-3.5")} View on GitHub
-              </a>
-              <a href="#/donate" class="btn btn-outline border-error/40 text-error hover:bg-error/10 hover:border-error btn-sm rounded-full px-7 gap-2">
-                ${icon(Heart, "w-3.5 h-3.5")} Donate
-              </a>
-            </div>
-          </div>
-        </section>
-
         <!-- ── Footer ── -->
         <footer class="py-14 px-6 md:px-12">
           <div class="max-w-5xl mx-auto">
@@ -604,8 +549,6 @@ export class MarketingPage extends LitElement {
               </div>
               <div class="flex flex-col gap-2.5">
                 <span class="text-ui-body uppercase tracking-widest text-ui-muted-subtle font-semibold">Project</span>
-                <a href=${GITHUB_URL} target="_blank" rel="noopener" class="text-ui-body text-ui-muted hover:text-base-content transition-colors">GitHub</a>
-                <a href="#/donate" class="text-ui-body text-ui-muted hover:text-base-content transition-colors">Support</a>
                 <a href="#/privacy" class="text-ui-body text-ui-muted hover:text-base-content transition-colors">Privacy</a>
                 <a href="#/terms" class="text-ui-body text-ui-muted hover:text-base-content transition-colors">Terms</a>
               </div>
@@ -614,17 +557,6 @@ export class MarketingPage extends LitElement {
               <p class="text-ui-body text-ui-muted-subtle">
                 MIT License · No ads · No cookies · No account required
               </p>
-              <div class="flex flex-wrap items-center justify-center gap-6">
-                <a href="https://ufind.best/products/speeedy?utm_source=ufind.best" target="_blank" rel="noopener">
-                  <img src=${badgeUrls.ufind} alt="Featured on ufind.best" width="100" />
-                </a>
-                <a href="https://www.producthunt.com/products/speeedy?utm_source=other&utm_medium=social" target="_blank" rel="noopener">
-                  <img src=${badgeUrls.productHunt} alt="Speeedy - Featured on Product Hunt" width="140" style="height: 30px;" />
-                </a>
-                <a href="https://alternativeto.net/software/speeedy/" target="_blank" rel="noopener" class="text-ui-body text-ui-muted-subtle hover:text-ui-muted transition-colors text-xs underline underline-offset-2">
-                  Listed on AlternativeTo
-                </a>
-              </div>
             </div>
           </div>
         </footer>

@@ -25,9 +25,8 @@ test.describe("Landing page", () => {
 		await expect(link).toHaveAttribute("href", /#\/app/);
 	});
 
-	test("displays navigation with GitHub link", async ({ page }) => {
-		const githubLink = page.getByRole("link", { name: /github/i });
-		await expect(githubLink).toBeVisible();
+	test("has no GitHub link", async ({ page }) => {
+		await expect(page.getByRole("link", { name: /github/i })).toHaveCount(0);
 	});
 
 	test("features section lists ORP alignment", async ({ page }) => {

@@ -8,7 +8,6 @@ const routes = [
 	{ path: "/#/stats", name: "stats", ready: "stats-dashboard" },
 	{ path: "/#/profile", name: "profile", ready: "profile-page" },
 	{ path: "/#/benchmark", name: "benchmark", ready: "benchmark-test" },
-	{ path: "/#/donate", name: "donate", ready: "donate-page" },
 	{ path: "/#/promote", name: "promote", ready: "promote-page" },
 	{ path: "/#/changelog", name: "changelog", ready: "changelog-page" },
 	{ path: "/#/privacy", name: "privacy", ready: "legal-page" },

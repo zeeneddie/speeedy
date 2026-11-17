@@ -9,7 +9,6 @@ export type Route =
 	| "terms"
 	| "benchmark"
 	| "learn"
-	| "donate"
 	| "promote"
 	| "changelog";
 

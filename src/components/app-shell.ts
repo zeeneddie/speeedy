@@ -9,7 +9,6 @@ import { applyTheme } from "../services/theme-service.js";
 import "./app-page.ts";
 import "./benchmark-test.ts";
 import "./changelog-page.ts";
-import "./donate-page.ts";
 import "./feedback-modal.ts";
 import "./learn-page.ts";
 import "./legal-page.ts";
@@ -165,8 +164,6 @@ export class AppShell extends LitElement {
 			this.route = "terms";
 		} else if (hash === "learn") {
 			this.route = "learn";
-		} else if (hash === "donate") {
-			this.route = "donate";
 		} else if (hash === "promote") {
 			this.route = "promote";
 		} else if (hash === "changelog") {
@@ -265,8 +262,6 @@ export class AppShell extends LitElement {
 				return html`<legal-page page="terms"></legal-page>`;
 			case "learn":
 				return html`<learn-page></learn-page>`;
-			case "donate":
-				return html`<donate-page></donate-page>`;
 			case "promote":
 				return html`<promote-page></promote-page>`;
 			case "changelog":
