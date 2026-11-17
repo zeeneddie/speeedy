@@ -9,7 +9,6 @@ import { applyTheme } from "../services/theme-service.js";
 import "./app-page.ts";
 import "./benchmark-test.ts";
 import "./changelog-page.ts";
-import "./feedback-modal.ts";
 import "./learn-page.ts";
 import "./legal-page.ts";
 import "./marketing-page.ts";
@@ -198,9 +197,7 @@ export class AppShell extends LitElement {
 		const isInternal =
 			e.reason instanceof TypeError || /cannot read propert/i.test(msg);
 		showToast(
-			isInternal
-				? "Something went wrong. Refresh the page — if it keeps happening, send us feedback."
-				: msg,
+			isInternal ? "Something went wrong. Refresh the page." : msg,
 			"error",
 		);
 	};
@@ -227,7 +224,6 @@ export class AppShell extends LitElement {
           ${this.renderRoute()}
         </div>
 
-        <feedback-modal></feedback-modal>
         <toast-container></toast-container>
         <global-tooltip></global-tooltip>
         <onboarding-modal .profile=${this.profile} .currentRoute=${this.route}></onboarding-modal>

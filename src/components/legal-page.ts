@@ -81,14 +81,6 @@ export class LegalPage extends LitElement {
       </section>
 
       <section>
-        <h2 class="text-base font-medium text-base-content mb-2">Feedback</h2>
-        <p>
-          The feedback form does not send anything itself. It opens a prefilled issue on GitHub; nothing is
-          submitted until you post that issue yourself, under GitHub's own terms.
-        </p>
-      </section>
-
-      <section>
         <h2 class="text-base font-medium text-base-content mb-2">Open source</h2>
         <p>
           Speeedy is open source under the MIT license. The full source code is available at

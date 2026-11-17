@@ -320,7 +320,7 @@ export class MarketingPage extends LitElement {
                 data-umami-event="marketing-app-click"
                 class="btn btn-primary btn-lg rounded-full px-12 gap-2 mkt-cta-glow"
                 style="box-shadow: 0 0 30px color-mix(in oklab, var(--color-primary) 35%, transparent), 0 4px 16px color-mix(in oklab, var(--color-primary) 20%, transparent);">
-                Start reading free ${icon(ArrowRight, "w-4 h-4")}
+                Start reading ${icon(ArrowRight, "w-4 h-4")}
               </a>
               <span class="flex items-center gap-2">
                 <a href="#/benchmark"

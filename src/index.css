@@ -676,7 +676,6 @@ legal-page {
 }
 
 /* Fixed portals: zero footprint in normal flow */
-feedback-modal,
 toast-container,
 onboarding-modal {
 	display: block;
