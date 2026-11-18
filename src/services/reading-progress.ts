@@ -6,14 +6,14 @@ export const GAP_TOLERANCE_WORDS = 5;
 /** Share of the words that must be covered (after closing small gaps) to count as fully read. */
 export const FULLY_READ_RATIO = 0.99;
 
-/** How far ahead (in tokens) the alignment looks for the next match. */
-const ALIGN_WINDOW = 60;
-
 /**
  * Maps each word of a filtered token stream (e.g. citations stripped) to the
  * index of the same word in the plain stream; -1 when it cannot be placed.
- * Both streams come from the same text, so the filtered one is (nearly) a
- * subsequence of the plain one; words are compared normalized.
+ * The citation filter only removes text, and citations start and end with a
+ * bracket (a word boundary), so the filtered words are a subsequence of the
+ * plain ones. The search therefore has no window: a removed stretch of any
+ * length is skipped, and the cursor only moves forward. A word that is not
+ * found stays -1 and leaves the cursor in place. Words are compared normalized.
  */
 export function buildWordMap(plain: string[], filtered: string[]): Int32Array {
 	const plainNorm = plain.map(normalizeForMatch);
@@ -22,8 +22,7 @@ export function buildWordMap(plain: string[], filtered: string[]): Int32Array {
 	for (let i = 0; i < filtered.length; i++) {
 		const word = normalizeForMatch(filtered[i]);
 		if (!word) continue;
-		const limit = Math.min(plain.length, cursor + ALIGN_WINDOW);
-		for (let j = cursor; j < limit; j++) {
+		for (let j = cursor; j < plain.length; j++) {
 			if (plainNorm[j] === word) {
 				map[i] = j;
 				cursor = j + 1;

@@ -35,6 +35,63 @@ describe("buildWordMap", () => {
 		});
 		expect(toFilteredIndex(map, toPlainIndex(map, 3))).toBe(3);
 	});
+
+	// Unique text words, so a word can only map to its own position.
+	const words = (from: number, count: number) =>
+		Array.from({ length: count }, (_, i) => `word${from + i}`).join(" ");
+	// One parenthetical with 20 author-year citations: 80 tokens, all removed.
+	const longCitation = `(${Array.from(
+		{ length: 20 },
+		(_, i) => `Author${String.fromCharCode(65 + i)} et al., 20${10 + i}`,
+	).join("; ")})`;
+	const streams = (text: string) => {
+		const plain = tokenize(text).map((t) => t.text);
+		const filtered = tokenize(stripCitations(text)).map((t) => t.text);
+		return { plain, filtered, map: buildWordMap(plain, filtered) };
+	};
+	const norm = (w: string | undefined) =>
+		(w ?? "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+	const expectExact = ({
+		plain,
+		filtered,
+		map,
+	}: ReturnType<typeof streams>) => {
+		filtered.forEach((word, i) => {
+			expect(map[i], `filtered word ${i} (${word})`).toBeGreaterThanOrEqual(0);
+			expect(norm(plain[map[i]])).toBe(norm(word));
+		});
+	};
+
+	it("keeps mapping after a removed citation of more than 60 words", () => {
+		const s = streams(`${words(0, 5)} ${longCitation} ${words(5, 200)}.`);
+		expect(s.plain.length - s.filtered.length).toBeGreaterThan(60);
+		expectExact(s);
+	});
+
+	it("round-trips plain → filtered → plain for every kept word", () => {
+		const s = streams(
+			`${words(0, 30)} ${longCitation} ${words(30, 100)} [1, 2] ${words(130, 50)}.`,
+		);
+		const kept = new Set(s.map);
+		for (let p = 0; p < s.plain.length; p++) {
+			if (!kept.has(p)) continue;
+			expect(toPlainIndex(s.map, toFilteredIndex(s.map, p)), `plain ${p}`).toBe(
+				p,
+			);
+		}
+		for (let i = 0; i < s.filtered.length; i++) {
+			expect(toFilteredIndex(s.map, toPlainIndex(s.map, i))).toBe(i);
+		}
+		expect(kept.size).toBe(s.filtered.length);
+	});
+
+	it("keeps mapping across several long citations in a row", () => {
+		const s = streams(
+			`${words(0, 10)} ${longCitation} ${longCitation} ${words(10, 3)} ${longCitation} ${words(13, 100)}.`,
+		);
+		expect(s.plain.length - s.filtered.length).toBeGreaterThan(180);
+		expectExact(s);
+	});
 });
 
 describe("mergeSpans", () => {

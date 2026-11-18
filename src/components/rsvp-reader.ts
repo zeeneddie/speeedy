@@ -25,6 +25,7 @@ import {
 	type PlaybackState,
 	RSVPEngine,
 	tokenize,
+	type WordToken,
 } from "../services/rsvp-engine.js";
 import { recordSession } from "../services/stats-service.js";
 import {
@@ -103,6 +104,8 @@ export class RsvpReader extends LitElement {
 	private _autoSaveTimer: ReturnType<typeof setInterval> | null = null;
 	/** Stores the raw (unprocessed) document text so we can re-tokenize when settings like removeCitations change. */
 	private rawDocText = "";
+	/** Word map (filtered → plain) of the token stream it was built for; a new stream (other document or filter setting) rebuilds it. */
+	private wordMap: { tokens: WordToken[]; map: Int32Array } | null = null;
 
 	// ── Ticker mode bookkeeping ──────────────────────────────────────────────
 
@@ -778,10 +781,17 @@ export class RsvpReader extends LitElement {
 	/** Plain (citation filter off) word index for a word of the stream the reader plays now. */
 	private toPlainMapper(): (index: number) => number {
 		if (!this.settings.removeCitations || !this.rawDocText) return (i) => i;
-		const map = buildWordMap(
-			tokenize(this.rawDocText).map((t) => t.text),
-			this.engine.tokens.map((t) => t.text),
-		);
+		const tokens = this.engine.tokens;
+		if (this.wordMap?.tokens !== tokens) {
+			this.wordMap = {
+				tokens,
+				map: buildWordMap(
+					tokenize(this.rawDocText).map((t) => t.text),
+					tokens.map((t) => t.text),
+				),
+			};
+		}
+		const { map } = this.wordMap;
 		return (i) => toPlainIndex(map, i);
 	}
 
