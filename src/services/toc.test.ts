@@ -35,6 +35,22 @@ describe("Markdown table of contents", () => {
 		expect(toc.map((e) => e.title)).toEqual(["Real", "Also real"]);
 	});
 
+	it("closes a fence only with the same character and at least its length", () => {
+		const nested =
+			"# Real\n\n````md\n```\n# Fake\n```\n````\n\n## Also real\nText.";
+		expect(
+			tocFromSegments(markdownSegments(nested), nested).map((e) => e.title),
+		).toEqual(["Real", "Also real"]);
+	});
+
+	it("does not close a backtick fence with tildes, or the other way round", () => {
+		const mixed =
+			"# Real\n\n~~~\n```\n# Fake\n~~~~\n\n## Also real\n```\nText.";
+		expect(
+			tocFromSegments(markdownSegments(mixed), mixed).map((e) => e.title),
+		).toEqual(["Real", "Also real"]);
+	});
+
 	it("gives no entries when the segments do not add up to the text", () => {
 		expect(
 			tocFromSegments(

@@ -38,15 +38,27 @@ export function tocFromSegments(
 }
 
 const MD_HEADING = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
-const MD_FENCE = /^\s{0,3}(```|~~~)/;
+const MD_FENCE = /^\s{0,3}(`{3,}|~{3,})(.*)$/;
 
 /** Splits Markdown into segments at heading lines (`#`, `##`, …), skipping code fences. */
 export function markdownSegments(text: string): TextSegment[] {
 	const segments: TextSegment[] = [{ text: "" }];
-	let inFence = false;
+	// Opening fence while inside a code block (CommonMark: only a line of the same
+	// character, at least as long and with nothing but whitespace after it, closes it).
+	let fence: string | null = null;
 	for (const line of text.split("\n")) {
-		if (MD_FENCE.test(line)) inFence = !inFence;
-		const match = inFence ? null : MD_HEADING.exec(line);
+		const f = MD_FENCE.exec(line);
+		if (fence === null) {
+			if (f) fence = f[1];
+		} else if (
+			f &&
+			f[1][0] === fence[0] &&
+			f[1].length >= fence.length &&
+			!f[2].trim()
+		) {
+			fence = null;
+		}
+		const match = fence === null ? MD_HEADING.exec(line) : null;
 		if (match) {
 			segments.push({
 				text: `${line}\n`,
