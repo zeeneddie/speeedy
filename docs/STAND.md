@@ -12,9 +12,9 @@ valkuilen. De plannen zelf staan in `docs/plan-*.md`.
 | Origineel fase 1: tabblad *Read / Original* (toets `O`), pdf tonen, meelopen, huidig woord markeren, klik = daar verder lezen; pdf.js-fonts lokaal (geen CDN) | `original-pdf-viewer.ts`, `pdf-word-geometry.ts`, `vite.config.ts` | ✅ PR #2 |
 | Marks: zin markeren met `M`, lijst, zichtbaar in origineel en lezer; documenten met marks worden nooit automatisch opgeruimd | `marks.ts`, `rsvp-reader.ts` | ✅ PR #3 |
 | Voortgang fase 0: gelezen stukken per sessie (sprong = nieuw stuk), dekking/volledig gelezen (99%, gaten ≤ 5 woorden), inhoudsopgave uit pdf-outline, EPUB (nav/NCX), Markdown, Word (.docx); transactionele documentupdates | `reading-progress.ts`, `toc.ts`, `pdf-toc-loader.ts` | ✅ PR #4 |
-| Voortgang fase 1: sessies als stukken onder de voortgangsbalk (twee tinten, hover/tik = sessieregel, instelling `progressShowSessions`) en in de bibliotheek (balkje, aantal sessies, *Fully read*, knop *Continue at first unread*) | `session-view.ts`, `rsvp-reader.ts`, `profile-page.ts` | 🟡 PR fase 1 |
+| Voortgang fase 1: sessies als stukken onder de voortgangsbalk (twee tinten, hover/tik = sessieregel; *Show progress bar* en *Show reading sessions* los aan/uit) en in de bibliotheek (sessiebalkje, aantal sessies, *Fully read*, knop *Continue at first unread*, oude voltooiingsbalk weg, tooltip boven de kaart); weggefilterde citaten tellen als gedekt | `session-view.ts`, `session-band.ts`, `rsvp-reader.ts`, `profile-page.ts` | ✅ PR #5 |
 
-**Bewust niet gedaan / backlog uit de reviews van PR #4** (18-11):
+**Bewust niet gedaan / backlog uit de reviews van PR #4 en #5** (18-11):
 
 | Punt | Waarom (nog) niet |
 |---|---|
@@ -81,5 +81,10 @@ plus de oorspronkelijke boek-pdf en `sample.epub`. Licenties en naamsvermelding 
 - **GitHub Actions draait niet in deze fork** (0 runs ooit, ook na vrijgave, `allow all` en workflow uit/aan;
   andere repo's van het account draaien wel). Oorzaak onbekend. Tot dat opgelost is: lokaal meten zoals hierboven
   en mergen met `mq-merge` + `MQ_ALLOW_NO_CHECKS=1`, met de getallen in de PR.
+- **Tests in jsdom:** het profieltabblad crasht in een test zonder `stats` in het profiel (`formatNumber(undefined)`);
+  wissel in componenttests naar het tabblad *Data* als je een sectiewissel nodig hebt. En draai een nieuwe test
+  altijd ook tegen de oude code: een "rode" test kan om een andere reden falen dan de bug.
+- **Instellingen staan alleen in de lezer** (tandwiel rechtsboven), niet op de startpagina — zo ook upstream.
+  Verdwijnt de voortgangsbalk tijdens het lezen: focusmodus (`F`) of *Show progress bar*.
 - **Fork tegenover upstream:** `main` wijkt flink af van `sami-29/speeedy`; upstream binnenhalen = mergen met
   conflicten in landing/app-page.
