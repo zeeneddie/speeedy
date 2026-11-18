@@ -17,12 +17,23 @@ import type {
 	UserProfile,
 } from "../models/types.js";
 import { AVATAR_EMOJIS, DEFAULT_SETTINGS } from "../services/defaults.js";
+import { computePageStarts } from "../services/page-map.js";
 import {
 	buildShareData,
 	downloadProfileBackup,
 	generateShareUrl,
 	loadProfileFromFile,
 } from "../services/profile-service.js";
+import { buildWordMap, toFilteredIndex } from "../services/reading-progress.js";
+import { tokenize } from "../services/rsvp-engine.js";
+import {
+	formatSessionInfo,
+	type ReadingSummary,
+	readingSummary,
+	type SessionPiece,
+	sessionInfos,
+	sessionPieces,
+} from "../services/session-view.js";
 import {
 	formatDuration,
 	formatNumber,
@@ -37,6 +48,7 @@ import {
 import { trackEvent } from "../utils/analytics.js";
 import { emitProfileUpdated, navigate, showToast } from "../utils/events.js";
 import { icon } from "../utils/icons.js";
+import { stripCitations } from "../utils/text-utils.js";
 import "./share-card.ts";
 import "./ui/dialog.js";
 import "./ui/file-uploader.js";
@@ -72,6 +84,17 @@ export class ProfilePage extends LitElement {
 	@state() private cropOffsetY = 0;
 	@state() private sharePrivacyAcknowledged = false;
 	private pendingImg: HTMLImageElement | null = null;
+	/** Session view per document id; tokenizing a document is costly, so it is done once per session list. */
+	private sessionViewCache = new Map<
+		string,
+		{
+			key: string;
+			summary: ReadingSummary;
+			pieces: SessionPiece[];
+			lines: string[];
+		}
+	>();
+	private sessionTipTimer: ReturnType<typeof setTimeout> | null = null;
 	private _dragActive = false;
 	private _dragStartX = 0;
 	private _dragStartY = 0;
@@ -125,6 +148,11 @@ export class ProfilePage extends LitElement {
 			this.activeSection = pendingTab;
 			sessionStorage.removeItem("speeedy:profile-tab");
 		}
+	}
+
+	override disconnectedCallback(): void {
+		super.disconnectedCallback();
+		this.hideSessionTip();
 	}
 
 	private updateProfile(partial: Partial<UserProfile>): void {
@@ -688,10 +716,105 @@ export class ProfilePage extends LitElement {
 		`;
 	}
 
+	/**
+	 * Session blocks, hover lines and summary of a document, in plain numbering
+	 * (citation filter off), as the reader's bar shows them without the filter.
+	 * Null without sessions. Cached per document and session list.
+	 */
+	private sessionView(doc: SavedDocument) {
+		const sessions = doc.sessions ?? [];
+		if (sessions.length === 0) return null;
+		const key = `${sessions.length}|${sessions.at(-1)?.id}|${doc.text.length}`;
+		const cached = this.sessionViewCache.get(doc.id);
+		if (cached?.key === key) return cached;
+		const totalWords = tokenize(doc.text).length;
+		const pageStarts = doc.pages
+			? computePageStarts(doc.pages, doc.text)
+			: null;
+		const view = {
+			key,
+			summary: readingSummary(sessions, totalWords),
+			pieces: sessionPieces(sessions, totalWords),
+			lines: sessionInfos(sessions, pageStarts).map((info) =>
+				formatSessionInfo(info),
+			),
+		};
+		this.sessionViewCache.set(doc.id, view);
+		return view;
+	}
+
+	private showSessionTip(text: string, target: HTMLElement): void {
+		window.dispatchEvent(
+			new CustomEvent("speeedy:show-tooltip", { detail: { text, target } }),
+		);
+	}
+
+	private hideSessionTip(): void {
+		if (this.sessionTipTimer) clearTimeout(this.sessionTipTimer);
+		this.sessionTipTimer = null;
+		window.dispatchEvent(new CustomEvent("speeedy:hide-tooltip"));
+	}
+
+	/** Same blocks as the reader's session layer; hover (or a tap on touch screens) shows the session line. */
+	private renderSessionBand(pieces: SessionPiece[], lines: string[]) {
+		return html`
+			<div class="library-session-band relative w-full max-w-[200px] h-1.5 bg-base-200 rounded-full mt-2 overflow-hidden">
+				${pieces.map(
+					(p) =>
+						html`<div
+							class="library-session-piece absolute top-0 bottom-0 ${p.tint === 0 ? "bg-info" : "bg-info/45"}"
+							data-session=${p.sessionIndex}
+							style="left: ${p.startFrac * 100}%; width: ${(p.endFrac - p.startFrac) * 100}%; min-width: 2px;"
+							@pointerenter=${(e: PointerEvent) => {
+								if (e.pointerType === "mouse")
+									this.showSessionTip(
+										lines[p.sessionIndex - 1],
+										e.currentTarget as HTMLElement,
+									);
+							}}
+							@pointerleave=${(e: PointerEvent) => {
+								if (e.pointerType === "mouse") this.hideSessionTip();
+							}}
+							@pointerdown=${(e: PointerEvent) => {
+								if (e.pointerType === "mouse") return;
+								this.showSessionTip(
+									lines[p.sessionIndex - 1],
+									e.currentTarget as HTMLElement,
+								);
+								if (this.sessionTipTimer) clearTimeout(this.sessionTipTimer);
+								this.sessionTipTimer = setTimeout(
+									() => this.hideSessionTip(),
+									3000,
+								);
+							}}
+						></div>`,
+				)}
+			</div>
+		`;
+	}
+
+	/** Opens the reader at the first unread word, in the numbering of the stream the reader will play. */
+	private continueAtFirstUnread(doc: SavedDocument, plainIndex: number): void {
+		let index = plainIndex;
+		if (this.profile?.settings.removeCitations) {
+			// Same stream as the reader: tokenize(stripCitations(text)).
+			const filtered = tokenize(stripCitations(doc.text)).map((t) => t.text);
+			index = toFilteredIndex(buildWordMap(doc.text, filtered), plainIndex);
+		}
+		navigate(
+			"reader",
+			{ title: doc.title, text: doc.text, wordCount: doc.wordCount },
+			doc.id,
+			index,
+		);
+	}
+
 	private renderDocCard(doc: SavedDocument) {
 		const pct = doc.completionPercent;
 		const resumeLabel =
 			pct >= 98 ? "Read again" : pct > 0 ? `Resume ${pct}%` : "Start";
+		const view = this.sessionView(doc);
+		const firstUnread = view?.summary.firstUnreadWord ?? null;
 		const date = new Date(doc.savedAt).toLocaleDateString(undefined, {
 			year: "numeric",
 			month: "short",
@@ -706,6 +829,17 @@ export class ProfilePage extends LitElement {
             ${icon(Clock, "w-3 h-3 text-ui-muted-subtle")}
             <span class="text-ui-body text-ui-muted">${date} · ${doc.wordCount.toLocaleString()} words</span>
           </div>
+          ${
+						view
+							? html`
+            ${this.renderSessionBand(view.pieces, view.lines)}
+            <div class="library-session-meta flex items-center gap-2 mt-1">
+              <span class="text-ui-body text-ui-muted">${view.summary.sessionCount === 1 ? "1 session" : `${view.summary.sessionCount} sessions`}</span>
+              ${view.summary.fullyRead ? html`<span class="badge badge-sm badge-success badge-soft">Fully read</span>` : ""}
+            </div>
+          `
+							: ""
+					}
           ${
 						pct > 0 && pct < 98
 							? html`
@@ -729,6 +863,16 @@ export class ProfilePage extends LitElement {
           >
             ${icon(Trash2, "w-4 h-4")}
           </button>
+          ${
+						firstUnread !== null
+							? html`
+            <button
+              class="btn btn-outline btn-sm rounded-lg ml-1"
+              @click=${() => this.continueAtFirstUnread(doc, firstUnread)}
+            >Continue at first unread</button>
+          `
+							: ""
+					}
           <button
             class="btn btn-primary btn-sm gap-2 rounded-lg ml-1"
             @click=${() => {

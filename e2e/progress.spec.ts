@@ -248,3 +248,111 @@ test.describe("Progress (phase 1): sessions on the reader's bar", () => {
 		}
 	});
 });
+
+test.describe("Progress (phase 1): sessions in the library", () => {
+	test("the library shows the reader's blocks, the session count, and opens at the first unread word", async ({
+		page,
+	}) => {
+		test.setTimeout(150_000);
+		await importToLibrary(page, OUTLINE_PDF);
+		await readSession(page, 7_000);
+		await expect
+			.poll(async () => (await firstDoc(page)).sessions?.length ?? 0)
+			.toBe(1);
+		// Second session: jump 400 words ahead first, so the stretch in between stays unread.
+		await readSession(page, 7_000, 80);
+		await expect
+			.poll(async () => (await firstDoc(page)).sessions?.length ?? 0)
+			.toBe(2);
+		const doc = await firstDoc(page);
+		const sessions = doc.sessions ?? [];
+		const firstUnread = await page.evaluate(async (d) => {
+			const { tokenize } = await import("/src/services/rsvp-engine.ts");
+			const { readingSummary } = await import("/src/services/session-view.ts");
+			return readingSummary(d.sessions as never, tokenize(d.text).length)
+				.firstUnreadWord;
+		}, doc);
+		// The gap starts right after what the first session read.
+		expect(firstUnread).toBe((sessions[0].spans.at(-1)?.end ?? -1) + 1);
+
+		const blocks = (selector: string) =>
+			page.locator(selector).evaluateAll((els) =>
+				els.map((el) => ({
+					session: Number((el as HTMLElement).dataset.session),
+					left: Number.parseFloat((el as HTMLElement).style.left),
+					width: Number.parseFloat((el as HTMLElement).style.width),
+				})),
+			);
+		await page.goto("/#/reader");
+		await expect(page.getByRole("tab", { name: "Original" })).toBeEnabled({
+			timeout: 15_000,
+		});
+		await dismissWelcome(page);
+		await expect(page.locator(".session-piece").first()).toBeAttached({
+			timeout: 15_000,
+		});
+		const inReader = await blocks(".session-piece");
+
+		await page.goto("/#/profile");
+		await page.getByRole("button", { name: "Library" }).click();
+		const card = page.locator(".group", {
+			has: page.locator(".library-session-band"),
+		});
+		await expect(card).toHaveCount(1);
+		const inLibrary = await blocks(".library-session-piece");
+		expect(inLibrary.length).toBe(inReader.length);
+		expect(new Set(inLibrary.map((b) => b.session))).toEqual(new Set([1, 2]));
+		inLibrary.forEach((b, i) => {
+			expect(b.session).toBe(inReader[i].session);
+			expect(b.left).toBeCloseTo(inReader[i].left, 6);
+			expect(b.width).toBeCloseTo(inReader[i].width, 6);
+		});
+		await expect(card).toContainText("2 sessions");
+		await expect(card).not.toContainText("Fully read");
+
+		// Hovering a block of session 2 shows the same line as in the reader.
+		await page
+			.locator('.library-session-piece[data-session="2"]')
+			.first()
+			.hover();
+		const tip = page.locator("global-tooltip");
+		await expect(tip).toHaveClass(/visible/);
+		await expect(tip).toContainText(/^\s*Session 2 · /);
+		await expect(tip).toContainText(`${sessions[1].wpm} wpm`);
+		// Optional pictures of the library, light and dark (G3_SHOT=path.png).
+		const shot = process.env.G3_SHOT;
+		if (shot) {
+			await page.waitForTimeout(300); // tooltip fade-in
+			await page.screenshot({ path: shot });
+			await page.evaluate(async () => {
+				const { applyTheme } = await import("/src/services/theme-service.ts");
+				applyTheme("dark");
+			});
+			await page
+				.locator('.library-session-piece[data-session="2"]')
+				.first()
+				.hover();
+			await expect(tip).toHaveClass(/visible/);
+			await page.waitForTimeout(300);
+			await page.screenshot({ path: shot.replace(/\.png$/, "-dark.png") });
+		}
+
+		await card
+			.getByRole("button", { name: "Continue at first unread" })
+			.click();
+		await expect(page).toHaveURL(/#\/reader/);
+		await expect(page.getByRole("tab", { name: "Original" })).toBeEnabled({
+			timeout: 15_000,
+		});
+		const position = await page.evaluate(
+			() =>
+				(
+					document.querySelector("rsvp-reader") as unknown as {
+						engine: { getState(): { wordIndex: number } };
+					}
+				).engine.getState().wordIndex,
+		);
+		// The reader steps back 12 words when it resumes, as with Continue.
+		expect(position).toBe(Math.max(0, (firstUnread ?? 0) - 12));
+	});
+});
