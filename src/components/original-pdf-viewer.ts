@@ -48,6 +48,10 @@ export class OriginalPdfViewer extends LitElement {
 	@property({ type: Boolean }) follow = true;
 	@property({ type: String }) highlight: OriginalHighlight = "word";
 	@property({ type: Boolean }) clickToResume = true;
+	/** Marked sentences as word ranges (inclusive) in the reader's token stream. */
+	@property({ attribute: false }) marks: { start: number; end: number }[] = [];
+	/** When set, scrolls to this word without moving the reading position (e.g. from the marks list). */
+	@property({ attribute: false }) focusWord: number | null = null;
 
 	@state() private status: "loading" | "ready" | "error" = "loading";
 	@state() private zoomIndex = ZOOM_STEPS.indexOf(1);
@@ -85,7 +89,12 @@ export class OriginalPdfViewer extends LitElement {
 			changed.has("pageStarts")
 		) {
 			this.paintHighlights();
-			if (this.follow && changed.has("currentWord")) this.scrollToCurrent();
+			if (this.follow && changed.has("currentWord") && this.focusWord === null)
+				this.scrollToCurrent();
+		}
+		if (changed.has("marks") || changed.has("pageStarts")) this.paintMarks();
+		if (changed.has("focusWord") && this.focusWord !== null) {
+			this.scrollToWord(this.focusWord);
 		}
 	}
 
@@ -127,7 +136,8 @@ export class OriginalPdfViewer extends LitElement {
 			this.status = "ready";
 			await this.updateComplete;
 			this.layoutPages();
-			this.scrollToCurrent("auto");
+			if (this.focusWord !== null) this.scrollToWord(this.focusWord, "auto");
+			else this.scrollToCurrent("auto");
 		} catch (err) {
 			console.error("[speeedy] Could not open the original PDF:", err);
 			if (token === this.loadToken) this.status = "error";
@@ -221,6 +231,7 @@ export class OriginalPdfViewer extends LitElement {
 			entry.rects = alignTokensToItems(pageTokens, items);
 		}
 		this.paintHighlights();
+		this.paintMarks();
 	}
 
 	private tokensOfPage(index: number): string[] | null {
@@ -284,13 +295,76 @@ export class OriginalPdfViewer extends LitElement {
 		}
 	}
 
+	/** Paints every marked sentence: a soft background on its words and a dot in the left margin. */
+	private paintMarks(): void {
+		for (const [, entry] of this.rendered) {
+			for (const el of entry.overlay.querySelectorAll(
+				".marked-word, .mark-dot",
+			))
+				el.remove();
+		}
+		const starts = this.pageStarts;
+		if (!starts) return;
+		for (const [page, entry] of this.rendered) {
+			if (!entry.viewport) continue;
+			const pageStart = starts[page];
+			const pageEnd =
+				page + 1 < starts.length
+					? starts[page + 1] - 1
+					: this.tokens.length - 1;
+			for (const mark of this.marks) {
+				if (mark.end < pageStart || mark.start > pageEnd) continue;
+				let dotTop: number | null = null;
+				for (
+					let w = Math.max(mark.start, pageStart);
+					w <= Math.min(mark.end, pageEnd);
+					w++
+				) {
+					for (const rect of entry.rects?.[w - pageStart] ?? []) {
+						const [x0, y0, x1, y1] = entry.viewport.convertToViewportRectangle([
+							rect.x0,
+							rect.y0,
+							rect.x1,
+							rect.y1,
+						]);
+						const box = document.createElement("div");
+						box.className =
+							"marked-word absolute bg-warning/35 pointer-events-none";
+						box.style.left = `${Math.min(x0, x1)}px`;
+						box.style.top = `${Math.min(y0, y1)}px`;
+						box.style.width = `${Math.abs(x1 - x0)}px`;
+						box.style.height = `${Math.abs(y1 - y0)}px`;
+						entry.overlay.append(box);
+						dotTop ??= Math.min(y0, y1);
+					}
+				}
+				const dot = document.createElement("div");
+				dot.className =
+					"mark-dot absolute w-2.5 h-2.5 rounded-full bg-warning pointer-events-none";
+				dot.style.left = "6px";
+				// No word positions on this page: the dot goes to the top of the page.
+				dot.style.top = `${(dotTop ?? 8) + 2}px`;
+				entry.overlay.append(dot);
+			}
+		}
+	}
+
 	private scrollToCurrent(behavior: ScrollBehavior = "smooth"): void {
-		const page = this.currentPage;
-		if (page === null || !this.scroller) return;
+		this.scrollToWord(this.currentWord, behavior);
+	}
+
+	private scrollToWord(
+		wordIndex: number,
+		behavior: ScrollBehavior = "smooth",
+	): void {
+		if (!this.pageStarts || !this.scroller) return;
+		const page = pageForWord(this.pageStarts, wordIndex);
 		const wrapper = this.wrappers[page];
 		if (!wrapper) return;
 		let top = wrapper.offsetTop - PAGE_GAP_PX;
-		const word = this.currentRects();
+		const rects =
+			this.rendered.get(page)?.rects?.[wordIndex - this.pageStarts[page]];
+		const word = rects ? { page, rects } : null;
 		const viewport = word ? this.rendered.get(word.page)?.viewport : null;
 		if (word && viewport) {
 			const [, y] = viewport.convertToViewportPoint(

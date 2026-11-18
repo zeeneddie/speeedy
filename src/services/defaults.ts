@@ -64,6 +64,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
 	originalFollow: true,
 	originalHighlight: "word",
 	originalClickToResume: true,
+	marksEnabled: true,
+	marksShowInProgress: true,
 };
 
 export const AVATAR_EMOJIS = [

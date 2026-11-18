@@ -450,6 +450,24 @@ export class SettingsPanel extends LitElement {
           </div>
         </section>
 
+        <!-- Marks -->
+        <section class="border-t border-base-200 pt-6 pb-2" aria-labelledby="settings-marks-heading">
+          <h2 id="settings-marks-heading" class="text-xs uppercase tracking-widest text-ui-muted font-medium mb-4">Marks</h2>
+          <div class="flex flex-col gap-3">
+            <speeedy-toggle
+              label="Mark sentences with M"
+              ?checked=${s.marksEnabled ?? true}
+              tip="While reading, press M to mark the current sentence (again to unmark). Marks show in the original and in the Marks list."
+              @change=${(e: CustomEvent) => this.emit({ marksEnabled: e.detail.value })}
+            ></speeedy-toggle>
+            <speeedy-toggle
+              label="Show marks on the progress bar"
+              ?checked=${s.marksShowInProgress ?? true}
+              @change=${(e: CustomEvent) => this.emit({ marksShowInProgress: e.detail.value })}
+            ></speeedy-toggle>
+          </div>
+        </section>
+
         <!-- Reading features -->
         <section class="border-t border-base-200 pt-6 pb-2">
           <h2 class="text-xs uppercase tracking-widest text-ui-muted font-medium mb-4">Reading features</h2>

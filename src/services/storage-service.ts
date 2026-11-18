@@ -1,5 +1,6 @@
 import { type IDBPDatabase, openDB } from "idb";
 import type {
+	Mark,
 	OriginalKind,
 	OriginalRef,
 	SavedDocument,
@@ -334,6 +335,17 @@ export async function updateDocumentProgress(
 	await db.put(DOCS_STORE, { ...doc, resumeWordIndex, completionPercent });
 }
 
+/** Replaces the marks of a document. */
+export async function updateDocumentMarks(
+	id: string,
+	marks: Mark[],
+): Promise<void> {
+	const db = await getDb();
+	const doc = (await db.get(DOCS_STORE, id)) as SavedDocument | undefined;
+	if (!doc) return;
+	await db.put(DOCS_STORE, { ...doc, marks });
+}
+
 export async function deleteSavedDocument(id: string): Promise<void> {
 	const db = await getDb();
 	await db.delete(DOCS_STORE, id);
@@ -343,7 +355,10 @@ export async function deleteSavedDocument(id: string): Promise<void> {
 async function pruneDocuments(db: IDBPDatabase): Promise<void> {
 	const all = await readSavedDocuments(db);
 	if (all.length > MAX_SAVED_DOCS) {
-		const toDelete = all.slice(MAX_SAVED_DOCS);
+		// Marks are the reader's own work: documents that have them are never pruned silently.
+		const toDelete = all
+			.slice(MAX_SAVED_DOCS)
+			.filter((doc) => !doc.marks?.length);
 		for (const doc of toDelete) {
 			await db.delete(DOCS_STORE, doc.id);
 			await db.delete(ORIGINALS_STORE, doc.id);
