@@ -130,4 +130,61 @@ test.describe("Original file (phase 0)", () => {
 			expect.arrayContaining(["documents", "originals", "profile"]),
 		);
 	});
+
+	test("the Original tab shows the PDF, marks the current word and resumes reading where you click", async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+		await page.goto("/#/profile");
+		await page.getByRole("button", { name: "Library" }).click();
+		await page
+			.locator('speeedy-file-uploader input[type="file"]')
+			.setInputFiles(PDF);
+		await expect(page.locator("text=added to your library")).toBeVisible({
+			timeout: 90_000,
+		});
+
+		await page.goto("/#/reader");
+		const originalTab = page.getByRole("tab", { name: "Original" });
+		await expect(originalTab).toBeEnabled({ timeout: 15_000 });
+		await page.keyboard.press("o");
+
+		const label = page.getByTestId("original-page-label");
+		// Page 1 of the fixture is the cover (no text), so the first word is on page 2.
+		await expect(label).toHaveText(/Page 2 \/ \d+/, { timeout: 30_000 });
+		await expect(page.locator("original-pdf-viewer canvas").first()).toBeVisible();
+		await expect(page.locator(".current-word").first()).toBeVisible({
+			timeout: 30_000,
+		});
+
+		// Click in the text block of page 3; the reader jumps there and switches back.
+		const page3 = page.locator('.original-page[data-page="2"]');
+		await page3.scrollIntoViewIfNeeded();
+		await expect(page3.locator("canvas")).toBeVisible({ timeout: 30_000 });
+		const box = await page3.boundingBox();
+		if (!box) throw new Error("page 3 has no box");
+		let jumped = false;
+		for (const fy of [0.3, 0.4, 0.5, 0.6]) {
+			await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * fy);
+			if ((await page.getByRole("tab", { name: "Read" }).getAttribute("aria-selected")) === "true") {
+				jumped = true;
+				break;
+			}
+		}
+		expect(jumped).toBe(true);
+
+		// Opening the original again follows the new position to page 3.
+		await page.keyboard.press("o");
+		await expect(label).toHaveText(/Page 3 \/ \d+/, { timeout: 30_000 });
+		await page.keyboard.press("Escape");
+		await expect(page.getByRole("tab", { name: "Read" })).toHaveAttribute(
+			"aria-selected",
+			"true",
+		);
+	});
+
+	test("the pdf.js font files come from the app itself", async ({ request }) => {
+		const res = await request.get("/pdfjs/standard_fonts/FoxitSans.pfb");
+		expect(res.status()).toBe(200);
+	});
 });
