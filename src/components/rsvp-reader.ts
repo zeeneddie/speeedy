@@ -2,6 +2,7 @@ import { html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import type {
+	DocSession,
 	Mark,
 	ParsedDocument,
 	ReaderSettings,
@@ -28,6 +29,7 @@ import {
 	RSVPEngine,
 	type WordToken,
 } from "../services/rsvp-engine.js";
+import { type SessionPiece, sessionView } from "../services/session-view.js";
 import { recordSession } from "../services/stats-service.js";
 import {
 	appendDocumentSession,
@@ -45,6 +47,7 @@ import { trackEvent, wpmBracket } from "../utils/analytics.js";
 import { emitProfileUpdated, navigate, showToast } from "../utils/events.js";
 import { stripCitations } from "../utils/text-utils.js";
 import type { OriginalWordClickDetail } from "./original-pdf-viewer.ts";
+import { SESSION_TINTS, SessionTip, sessionBandLabel } from "./session-band.ts";
 import "./settings-panel.ts";
 import "./wellness-overlay.ts";
 
@@ -85,6 +88,19 @@ export class RsvpReader extends LitElement {
 		null;
 	/** Marked sentences of the current document. */
 	@state() private marks: Mark[] = [];
+	/** Stored reading sessions of the current document (the running one is not in here until saved). */
+	@state() private docSessions: DocSession[] = [];
+	private sessionLayerCache: {
+		sessions: DocSession[];
+		key: string;
+		pages: string[] | null;
+		pieces: SessionPiece[];
+		lines: string[];
+		label: string;
+	} | null = null;
+	private sessionTip = new SessionTip();
+	/** Whether the last render showed the session band. */
+	private sessionBandShown = false;
 	@state() private showMarksList = false;
 	/** Brief confirmation after pressing M. */
 	@state() private markFlash: "added" | "removed" | null = null;
@@ -314,6 +330,7 @@ export class RsvpReader extends LitElement {
 	override disconnectedCallback(): void {
 		super.disconnectedCallback();
 		this._stopAutoSave();
+		this.sessionTip.hide();
 		this.saveDocSession();
 		void this.persistProgress(this.engine.getState());
 		this.engine.stop();
@@ -354,6 +371,11 @@ export class RsvpReader extends LitElement {
 		}
 
 		this.alignRtlPivot();
+
+		// The band can vanish under an open tip (focus mode, tab Original, setting off); close the tip with it.
+		const bandShown = this.renderRoot.querySelector(".session-band") !== null;
+		if (this.sessionBandShown && !bandShown) this.sessionTip.hide();
+		this.sessionBandShown = bandShown;
 	}
 
 	/** RTL pivot alignment; updated on resize, not each word. */
@@ -408,12 +430,14 @@ export class RsvpReader extends LitElement {
 		this.docOriginal = { pages: null, blob: null, available: false };
 		this.pageStartsCache = null;
 		this.marks = [];
+		this.docSessions = [];
 		this.showMarksList = false;
 		this.originalFocusWord = null;
 		if (!id) return;
 		const doc = await getSavedDocument(id);
 		if (!doc || this.savedDocId !== id) return;
 		this.marks = doc.marks ?? [];
+		this.docSessions = doc.sessions ?? [];
 		// PDFs imported before tables of contents were kept: read it once from the stored original.
 		if (doc.original?.kind === "pdf" && doc.toc === undefined && doc.pages) {
 			void this.backfillPdfToc(id, doc.pages, doc.text);
@@ -459,6 +483,98 @@ export class RsvpReader extends LitElement {
 			};
 		}
 		return this.pageStartsCache.starts;
+	}
+
+	/**
+	 * Session blocks for the progress bar plus one tooltip line per session.
+	 * Cached per document, session list, filter setting and token stream: the
+	 * plain word count and page starts need a full tokenize of the document.
+	 */
+	private get sessionLayer(): {
+		pieces: SessionPiece[];
+		lines: string[];
+		label: string;
+	} {
+		const key = `${this.savedDocId}|${this.settings.removeCitations}|${this.engine.tokens.length}`;
+		const pages = this.docOriginal.pages;
+		const cache = this.sessionLayerCache;
+		if (
+			cache &&
+			cache.sessions === this.docSessions &&
+			cache.key === key &&
+			cache.pages === pages
+		) {
+			return cache;
+		}
+		let pieces: SessionPiece[] = [];
+		let lines: string[] = [];
+		let label = "";
+		if (this.docSessions.length > 0 && this.rawDocText) {
+			const removeCitations = this.settings.removeCitations;
+			if (removeCitations) this.toPlainMapper(); // builds this.wordMap for the current stream
+			const view = sessionView(this.rawDocText, pages, this.docSessions, {
+				removeCitations,
+				wordMap: removeCitations ? this.wordMap?.map : undefined,
+			});
+			({ pieces, lines } = view);
+			label = sessionBandLabel(view.summary);
+		}
+		this.sessionLayerCache = {
+			sessions: this.docSessions,
+			key,
+			pages,
+			pieces,
+			lines,
+			label,
+		};
+		return this.sessionLayerCache;
+	}
+
+	/**
+	 * Second layer under the seek bar: the stretches read per session. It only
+	 * shows details (hover, or a tap on touch screens) and never seeks; the bar
+	 * above it keeps seeking.
+	 */
+	private renderSessionBand(totalWords: number) {
+		if (!this.settings.progressShowSessions || totalWords === 0) return nothing;
+		const { pieces, lines, label } = this.sessionLayer;
+		if (pieces.length === 0) return nothing;
+		const tall = this.isProgressHovered || this.isSeeking;
+		return html`
+			<div
+				class="session-band w-full shrink-0 relative z-10"
+				style="height: ${tall ? "8px" : "4px"}; transition: height 0.15s ease;"
+				role="img"
+				aria-label=${label}
+				@pointerenter=${() => {
+					this.isProgressHovered = true;
+				}}
+				@pointermove=${(e: PointerEvent) => {
+					if (e.pointerType === "mouse")
+						this.sessionTip.showAt(e, pieces, lines);
+				}}
+				@pointerleave=${(e: PointerEvent) => {
+					if (!this.isSeeking) this.isProgressHovered = false;
+					if (e.pointerType === "mouse") this.sessionTip.hide();
+				}}
+				@pointerdown=${(e: PointerEvent) => {
+					if (e.pointerType !== "mouse")
+						this.sessionTip.showAt(e, pieces, lines);
+				}}
+			>
+				<!-- Invisible 24px touch target from the band's top edge downwards; it stays off the seek bar above. -->
+				<div class="session-band-hit absolute inset-x-0 top-0 h-6"></div>
+				${pieces.map(
+					(p, i) =>
+						html`<div
+							class="session-piece absolute top-0 bottom-0 pointer-events-none ${SESSION_TINTS[p.tint]}"
+							data-piece=${i}
+							data-session=${p.sessionIndex}
+							style="left: ${p.startFrac * 100}%; width: ${(p.endFrac - p.startFrac) * 100}%; min-width: 2px;"
+						></div>`,
+				)}
+			</div>
+		`;
 	}
 
 	private get markPrep(): "plain" | "noCitations" {
@@ -803,8 +919,18 @@ export class RsvpReader extends LitElement {
 			this.engine.tokens.length - 1,
 			Date.now(),
 		);
-		if (docSession && this.savedDocId) {
-			void appendDocumentSession(this.savedDocId, docSession);
+		const id = this.savedDocId;
+		if (docSession && id) {
+			void (async () => {
+				await appendDocumentSession(id, docSession);
+				// Show it on the bar once it is stored.
+				// The document load may have read it from the store in the meantime.
+				if (
+					this.savedDocId === id &&
+					!this.docSessions.some((s) => s.id === docSession.id)
+				)
+					this.docSessions = [...this.docSessions, docSession];
+			})();
 		}
 	}
 
@@ -1139,6 +1265,12 @@ export class RsvpReader extends LitElement {
 					</div>
 				`
 						: ""
+				}
+				${
+					// The session band has its own setting: it also shows without the progress bar.
+					!focusModeActive && this.readerTab === "read"
+						? this.renderSessionBand(s?.totalWords ?? 0)
+						: nothing
 				}
 
 					${

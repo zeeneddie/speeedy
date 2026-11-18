@@ -124,6 +124,8 @@ export interface ReaderSettings {
 	marksEnabled: boolean;
 	/** Small ticks on the progress bar for each mark. */
 	marksShowInProgress: boolean;
+	/** The progress bar shows the stretches read per session as a second layer. */
+	progressShowSessions: boolean;
 }
 
 export interface ReadingSession {

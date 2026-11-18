@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../services/defaults.js";
+import { SESSION_TINTS } from "./session-band.js";
 
 // Count how often the word map is built while keeping its real behaviour.
 const { buildWordMapSpy } = vi.hoisted(() => ({ buildWordMapSpy: vi.fn() }));
@@ -169,5 +170,210 @@ describe("rsvp-reader sessions", () => {
 		reader.saveDocSession();
 		expect(appendSpy).toHaveBeenCalledTimes(1);
 		expect(appendSpy.mock.calls[0][1].spans).toEqual([{ start: 0, end: 7 }]);
+	});
+
+	it("adds the stored session once, also when the document load already brought it in", async () => {
+		const reader = makeReader(words(100).join(" ")) as ReaderInternals & {
+			docSessions: { id: string }[];
+		};
+		// The document load finishes while the write is pending and reads the new session from the store.
+		appendSpy.mockReset();
+		appendSpy.mockImplementation(async (_id, stored) => {
+			reader.docSessions = [stored];
+		});
+		for (let i = 0; i < 30; i++) reader.sessionRecorder.onWords(i, 1, i * 300);
+		reader.saveDocSession();
+		await new Promise((r) => setTimeout(r, 0));
+		expect(reader.docSessions).toHaveLength(1);
+		appendSpy.mockReset();
+	});
+});
+
+describe("rsvp-reader session layer", () => {
+	const words = (n: number) => Array.from({ length: n }, (_, i) => `w${i}`);
+	const session = (
+		startedAt: string,
+		spans: { start: number; end: number }[],
+	) => ({
+		id: startedAt,
+		startedAt,
+		endedAt: startedAt,
+		durationMs: 120_000,
+		wordsRead: 50,
+		wpm: 300,
+		spans,
+	});
+	const mount = async (showSessions: boolean) => {
+		const reader = document.createElement("rsvp-reader");
+		const r = reader as unknown as ReaderInternals & {
+			docSessions: unknown[];
+			profile: unknown;
+			updateComplete: Promise<boolean>;
+			requestUpdate(): void;
+		};
+		r.profile = {
+			settings: { removeCitations: false, progressShowSessions: showSessions },
+		};
+		document.body.appendChild(reader);
+		const text = words(200).join(" ");
+		r.rawDocText = text;
+		r.engine.load(text, r.settings);
+		r.docSessions = [
+			session("2026-11-18T10:00:00Z", [{ start: 0, end: 49 }]),
+			// Second session read two stretches with a jump in between.
+			session("2026-11-18T12:00:00Z", [
+				{ start: 100, end: 119 },
+				{ start: 150, end: 199 },
+			]),
+		];
+		r.requestUpdate();
+		await r.updateComplete;
+		return reader;
+	};
+
+	it("draws one block per read stretch, alternating tints per session", async () => {
+		const el = await mount(true);
+		const pieces = [...el.querySelectorAll<HTMLElement>(".session-piece")];
+		const pct = (v: string) => Math.round(Number.parseFloat(v) * 100) / 100;
+		expect(
+			pieces.map((p) => [
+				p.dataset.session,
+				pct(p.style.left),
+				pct(p.style.width),
+			]),
+		).toEqual([
+			["1", 0, 25],
+			["2", 50, 10],
+			["2", 75, 25],
+		]);
+		expect(pieces[0].className).toContain(SESSION_TINTS[0]);
+		expect(pieces[1].className).toContain(SESSION_TINTS[1]);
+		// Blocks never take pointer events: clicks reach the seek bar.
+		expect(
+			pieces.every((p) => p.className.includes("pointer-events-none")),
+		).toBe(true);
+		el.remove();
+	});
+
+	it("shows the newest session where sessions overlap: it is drawn on top", async () => {
+		const el = await mount(true);
+		const r = el as unknown as {
+			docSessions: unknown[];
+			requestUpdate(): void;
+			updateComplete: Promise<boolean>;
+		};
+		r.docSessions = [
+			session("2026-11-18T10:00:00Z", [{ start: 0, end: 199 }]),
+			session("2026-11-18T12:00:00Z", [{ start: 80, end: 119 }]),
+		];
+		r.requestUpdate();
+		await r.updateComplete;
+		const band = el.querySelector<HTMLElement>(".session-band");
+		if (!band) throw new Error("no session band");
+		band.getBoundingClientRect = () => ({ left: 0, width: 200 }) as DOMRect;
+		const shown: string[] = [];
+		const onShow = (e: Event) =>
+			shown.push((e as CustomEvent<{ text: string }>).detail.text);
+		window.addEventListener("speeedy:show-tooltip", onShow);
+		for (const clientX of [100, 20]) {
+			band.dispatchEvent(
+				Object.assign(new Event("pointermove"), {
+					pointerType: "mouse",
+					clientX,
+				}),
+			);
+		}
+		window.removeEventListener("speeedy:show-tooltip", onShow);
+		expect(shown.map((t) => t.split(" · ")[0])).toEqual([
+			"Session 2",
+			"Session 1",
+		]);
+		el.remove();
+	});
+
+	it("labels the band with the session count and the share read", async () => {
+		const el = await mount(true);
+		const band = el.querySelector(".session-band");
+		expect(band?.getAttribute("role")).toBe("img");
+		// Read 0–49, 100–119 and 150–199 of 200 words: 120 words, 60%.
+		expect(band?.getAttribute("aria-label")).toBe("2 sessions, 60% read");
+		el.remove();
+	});
+
+	it("shows the band and the seek bar independently of each other", async () => {
+		const el = await mount(true);
+		const r = el as unknown as {
+			settings: Record<string, unknown>;
+			updateComplete: Promise<boolean>;
+		};
+		const seekBar = () =>
+			el.querySelector(".h-full.bg-primary.pointer-events-none");
+		const set = async (
+			showProgress: boolean,
+			progressShowSessions: boolean,
+		) => {
+			r.settings = { ...r.settings, showProgress, progressShowSessions };
+			await r.updateComplete;
+		};
+		await set(false, true);
+		expect(el.querySelector(".session-band")).not.toBeNull();
+		expect(seekBar()).toBeNull();
+		await set(true, false);
+		expect(el.querySelector(".session-band")).toBeNull();
+		expect(seekBar()).not.toBeNull();
+		el.remove();
+	});
+
+	it("hides an open session tip when the band goes away", async () => {
+		const el = await mount(true);
+		const r = el as unknown as {
+			settings: Record<string, unknown>;
+			readerTab: string;
+			sessionTip: { open: boolean };
+			requestUpdate(): void;
+			updateComplete: Promise<boolean>;
+		};
+		const hides: Event[] = [];
+		const onHide = (e: Event) => hides.push(e);
+		window.addEventListener("speeedy:hide-tooltip", onHide);
+		const hover = () => {
+			const band = el.querySelector<HTMLElement>(".session-band");
+			if (!band) throw new Error("no session band");
+			band.getBoundingClientRect = () => ({ left: 0, width: 200 }) as DOMRect;
+			band.dispatchEvent(
+				Object.assign(new Event("pointermove"), {
+					pointerType: "mouse",
+					clientX: 20,
+				}),
+			);
+			expect(r.sessionTip.open).toBe(true);
+		};
+		// Setting turned off.
+		hover();
+		r.settings = { ...r.settings, progressShowSessions: false };
+		await r.updateComplete;
+		expect(r.sessionTip.open).toBe(false);
+		expect(hides).toHaveLength(1);
+		// Tab Original.
+		r.settings = { ...r.settings, progressShowSessions: true };
+		await r.updateComplete;
+		hover();
+		r.readerTab = "original";
+		await r.updateComplete;
+		expect(r.sessionTip.open).toBe(false);
+		expect(hides).toHaveLength(2);
+		// Other renders leave the tooltip alone.
+		r.requestUpdate();
+		await r.updateComplete;
+		expect(hides).toHaveLength(2);
+		window.removeEventListener("speeedy:hide-tooltip", onHide);
+		el.remove();
+	});
+
+	it("draws nothing when progressShowSessions is off", async () => {
+		const el = await mount(false);
+		expect(el.querySelectorAll(".session-piece")).toHaveLength(0);
+		expect(el.querySelector(".session-band")).toBeNull();
+		el.remove();
 	});
 });

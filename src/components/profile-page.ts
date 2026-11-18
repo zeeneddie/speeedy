@@ -1,4 +1,4 @@
-import { html, LitElement } from "lit";
+import { html, LitElement, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import {
 	ArrowLeft,
@@ -23,6 +23,9 @@ import {
 	generateShareUrl,
 	loadProfileFromFile,
 } from "../services/profile-service.js";
+import { buildWordMap, toFilteredIndex } from "../services/reading-progress.js";
+import { tokenize } from "../services/rsvp-engine.js";
+import { type SessionView, sessionView } from "../services/session-view.js";
 import {
 	formatDuration,
 	formatNumber,
@@ -37,6 +40,8 @@ import {
 import { trackEvent } from "../utils/analytics.js";
 import { emitProfileUpdated, navigate, showToast } from "../utils/events.js";
 import { icon } from "../utils/icons.js";
+import { stripCitations } from "../utils/text-utils.js";
+import { SESSION_TINTS, SessionTip, sessionBandLabel } from "./session-band.ts";
 import "./share-card.ts";
 import "./ui/dialog.js";
 import "./ui/file-uploader.js";
@@ -72,6 +77,9 @@ export class ProfilePage extends LitElement {
 	@state() private cropOffsetY = 0;
 	@state() private sharePrivacyAcknowledged = false;
 	private pendingImg: HTMLImageElement | null = null;
+	/** Session view per document id; tokenizing a document is costly, so it is done once per session list. */
+	private sessionViewCache = new Map<string, SessionView & { key: string }>();
+	private sessionTip = new SessionTip();
 	private _dragActive = false;
 	private _dragStartX = 0;
 	private _dragStartY = 0;
@@ -125,6 +133,11 @@ export class ProfilePage extends LitElement {
 			this.activeSection = pendingTab;
 			sessionStorage.removeItem("speeedy:profile-tab");
 		}
+	}
+
+	override disconnectedCallback(): void {
+		super.disconnectedCallback();
+		this.sessionTip.hide();
 	}
 
 	private updateProfile(partial: Partial<UserProfile>): void {
@@ -688,10 +701,97 @@ export class ProfilePage extends LitElement {
 		`;
 	}
 
+	/**
+	 * Session blocks, hover lines and summary of a document. The blocks are in
+	 * plain numbering (citation filter off), as the reader's bar shows them
+	 * without the filter; the summary follows the filter setting, so words the
+	 * reader never shows count as read. Null without sessions. Cached per document, session list, pages and
+	 * filter setting.
+	 */
+	private sessionView(doc: SavedDocument) {
+		const sessions = doc.sessions ?? [];
+		if (sessions.length === 0) return null;
+		const removeCitations = Boolean(this.profile?.settings.removeCitations);
+		const key = `${sessions.length}|${sessions.at(-1)?.id}|${doc.text.length}|${doc.pages?.length ?? "-"}|${removeCitations}`;
+		const cached = this.sessionViewCache.get(doc.id);
+		if (cached?.key === key) return cached;
+		const view = {
+			key,
+			...sessionView(doc.text, doc.pages, sessions, { removeCitations }),
+		};
+		this.sessionViewCache.set(doc.id, view);
+		return view;
+	}
+
+	/**
+	 * Same blocks as the reader's session layer; hover (or a tap on touch screens)
+	 * shows the session line above the card, so it covers no title.
+	 */
+	private renderSessionBand(view: SessionView) {
+		const { pieces, lines } = view;
+		const show = (e: PointerEvent) =>
+			this.sessionTip.showAt(
+				e,
+				pieces,
+				lines,
+				(e.currentTarget as HTMLElement).closest<HTMLElement>(
+					".library-doc-card",
+				),
+			);
+		return html`
+			<div
+				class="library-session-band relative w-full max-w-[200px] mt-2"
+				role="img"
+				aria-label=${sessionBandLabel(view.summary)}
+				@pointermove=${(e: PointerEvent) => {
+					if (e.pointerType === "mouse") show(e);
+				}}
+				@pointerleave=${(e: PointerEvent) => {
+					if (e.pointerType === "mouse") this.sessionTip.hide();
+				}}
+				@pointerdown=${(e: PointerEvent) => {
+					if (e.pointerType !== "mouse") show(e);
+				}}
+			>
+				<!-- Invisible 24px touch target centred on the 6px band. -->
+				<div class="library-session-hit absolute inset-x-0 -top-[9px] h-6"></div>
+				<div class="relative h-1.5 bg-base-200 rounded-full overflow-hidden pointer-events-none">
+					${pieces.map(
+						(p, i) =>
+							html`<div
+								class="library-session-piece absolute top-0 bottom-0 ${SESSION_TINTS[p.tint]}"
+								data-piece=${i}
+								data-session=${p.sessionIndex}
+								style="left: ${p.startFrac * 100}%; width: ${(p.endFrac - p.startFrac) * 100}%; min-width: 2px;"
+							></div>`,
+					)}
+				</div>
+			</div>
+		`;
+	}
+
+	/** Opens the reader at the first unread word, in the numbering of the stream the reader will play. */
+	private continueAtFirstUnread(doc: SavedDocument, plainIndex: number): void {
+		let index = plainIndex;
+		if (this.profile?.settings.removeCitations) {
+			// Same stream as the reader: tokenize(stripCitations(text)).
+			const filtered = tokenize(stripCitations(doc.text)).map((t) => t.text);
+			index = toFilteredIndex(buildWordMap(doc.text, filtered), plainIndex);
+		}
+		navigate(
+			"reader",
+			{ title: doc.title, text: doc.text, wordCount: doc.wordCount },
+			doc.id,
+			index,
+		);
+	}
+
 	private renderDocCard(doc: SavedDocument) {
 		const pct = doc.completionPercent;
 		const resumeLabel =
 			pct >= 98 ? "Read again" : pct > 0 ? `Resume ${pct}%` : "Start";
+		const view = this.sessionView(doc);
+		const firstUnread = view?.summary.firstUnreadWord ?? null;
 		const date = new Date(doc.savedAt).toLocaleDateString(undefined, {
 			year: "numeric",
 			month: "short",
@@ -699,7 +799,7 @@ export class ProfilePage extends LitElement {
 		});
 
 		return html`
-      <div class="flex items-center gap-3 px-4 py-3 rounded-xl border border-base-200 bg-base-100 hover:border-primary/30 transition-colors group">
+      <div class="library-doc-card flex items-center gap-3 px-4 py-3 rounded-xl border border-base-200 bg-base-100 hover:border-primary/30 transition-colors group">
         <div class="flex-1 min-w-0">
           <div class="text-ui-body font-semibold text-base-content truncate pr-4">${doc.title}</div>
           <div class="flex items-center gap-2 mt-1">
@@ -707,10 +807,12 @@ export class ProfilePage extends LitElement {
             <span class="text-ui-body text-ui-muted">${date} · ${doc.wordCount.toLocaleString()} words</span>
           </div>
           ${
-						pct > 0 && pct < 98
+						view
 							? html`
-            <div class="w-full max-w-[200px] h-1 bg-base-200 rounded-full mt-2 overflow-hidden">
-              <div class="h-full bg-primary/60 rounded-full" style="width: ${pct}%"></div>
+            ${this.renderSessionBand(view)}
+            <div class="library-session-meta flex items-center gap-2 mt-1">
+              <span class="text-ui-body text-ui-muted">${view.summary.sessionCount === 1 ? "1 session" : `${view.summary.sessionCount} sessions`}</span>
+              ${view.summary.fullyRead ? html`<span class="badge badge-sm badge-success badge-soft">Fully read</span>` : ""}
             </div>
           `
 							: ""
@@ -722,6 +824,7 @@ export class ProfilePage extends LitElement {
             title="Delete"
             @click=${async () => {
 							await deleteSavedDocument(doc.id);
+							this.sessionViewCache.delete(doc.id);
 							this.savedDocs = await getSavedDocuments();
 							const maxPage = Math.ceil(this.savedDocs.length / 10) || 1;
 							if (this.libraryPage > maxPage) this.libraryPage = maxPage;
@@ -729,6 +832,16 @@ export class ProfilePage extends LitElement {
           >
             ${icon(Trash2, "w-4 h-4")}
           </button>
+          ${
+						firstUnread !== null
+							? html`
+            <button
+              class="btn btn-outline btn-sm rounded-lg ml-1"
+              @click=${() => this.continueAtFirstUnread(doc, firstUnread)}
+            >Continue at first unread</button>
+          `
+							: ""
+					}
           <button
             class="btn btn-primary btn-sm gap-2 rounded-lg ml-1"
             @click=${() => {
@@ -1063,7 +1176,11 @@ export class ProfilePage extends LitElement {
     `;
 	}
 
-	override updated(): void {
+	override updated(changed: PropertyValues): void {
+		// Switching section or library page removes the bands; close their tip.
+		if (changed.has("activeSection") || changed.has("libraryPage")) {
+			this.sessionTip.hide();
+		}
 		if (this.showAvatarCrop) this.drawCropPreview();
 	}
 

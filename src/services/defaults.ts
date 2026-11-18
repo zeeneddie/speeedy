@@ -66,6 +66,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
 	originalClickToResume: true,
 	marksEnabled: true,
 	marksShowInProgress: true,
+	progressShowSessions: true,
 };
 
 export const AVATAR_EMOJIS = [
