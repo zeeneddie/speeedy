@@ -1,7 +1,9 @@
-# Plan — afbeeldingen tonen tijdens het snellezen
+# Plan — afbeeldingen en tabellen tonen tijdens het snellezen
 
 Opgesteld 2026-11-18 op verzoek van Eddie. **Status: in de wachtrij** — na de marks (fase 2 van
 `plan-origineel-tabblad.md`) en het plan *voortgang en inhoud* (sessies en inhoudsopgave).
+
+Uitgebreid 2026-11-18 (Eddie): wat voor afbeeldingen geldt, geldt ook voor **tabellen** (zie § Tabellen).
 
 Besluiten Eddie 2026-11-18: pdf zit in dezelfde ronde als EPUB, Word en HTML (fase 3 hoort bij de eerste ronde) ·
 bij "uit" verschijnt **[foto]**.
@@ -66,6 +68,39 @@ bepalen, het plaatje uitsnijden uit de getekende pagina (techniek van het tabbla
 plaatsen tussen de woorden die erboven en eronder staan. **Alleen tonen als de plek zeker is**; anders geen
 markering. Bouwt op de pdf-weergave van het tabblad *Origineel* (gemerged, PR #2).
 
+## Tabellen — zelfde aanpak als afbeeldingen
+
+**Hoe het nu gaat.** Anders dan plaatjes vallen tabellen niet weg: de celtekst gaat woord voor woord door het
+snellezen, zonder rijen en kolommen. Bij EPUB/HTML/Word komen de cellen achter elkaar (`htmlToPlainText`,
+`extractRawText`); bij pdf staat de celtekst in de volgorde waarin pdf.js hem levert.
+
+**Wat het wordt** (gelijk aan afbeeldingen):
+- **Uit** — op de plek van de tabel verschijnt **[tabel]**; de celtekst wordt **overgeslagen** (besluit 2026-11-18).
+- **Aan, fase 1** — bij een tabel pauzeert het lezen en wordt de tabel getoond; spatie = verder.
+- **Aan, fase 2** — toontijd; de tekst loopt niet door zolang de tabel in beeld is. Standaard **afhankelijk van
+  de grootte**: 1 seconde per 4 cellen, minimaal 4 en maximaal 20 seconden (pdf-tabellen: cellen geschat uit de
+  herkende rijen en kolommen). Met een schakelaar kies je in plaats daarvan een **vaste toontijd** die je zelf
+  instelt (besluit 2026-11-18). Spatie gaat altijd meteen verder.
+
+**Herkennen en tonen per formaat**
+
+| Formaat | Herkennen | Tonen | Zekerheid |
+|---|---|---|---|
+| EPUB, HTML | `<table>` | de tabel zelf, opgemaakt (rijen, kolommen, kopregel), op schermbreedte, met bijschrift (`<caption>`) | zeker |
+| Word (.docx) | `<table>` via `mammoth.convertToHtml` (dezelfde omschakeling als voor afbeeldingen en de inhoudsopgave) | zoals HTML | zeker |
+| Pdf | geen tabel-element: tekst in uitgelijnde kolommen, vaak met horizontale/verticale lijnen. Herkennen met de techniek van de kaderherkenning (`plan-voortgang-en-inhoud.md`, fase 5): getekende lijnen + uitlijning van tekst in kolommen + ander lettertype. **Alleen als minstens twee signalen samenvallen.** | het stuk van de pagina uitgeknipt als beeld (techniek van het tabblad *Origineel*) | soms; twijfel = geen tabel |
+
+**Testmateriaal:** `test-fixtures/boxes/arxiv-2610.33704-twocol-negative.pdf` heeft op p. 4 een tabel met lijnen
+boven en onder (moet als tabel herkend worden, niet als kader); de twee kolommen ernaast mogen **niet** als tabel
+gelden. Voor EPUB/Word een kleine eigen fixture met een tabel.
+
+**Opslag:** tabellen uit EPUB/HTML/Word als HTML-fragment, pdf-tabellen als uitgeknipt beeld; in dezelfde store
+als de afbeeldingen (sleutel document-id + nummer + soort).
+
+**Telt niet mee:** de markering telt niet als gelezen woord, net als bij afbeeldingen. De celtekst wordt
+overgeslagen; een getoonde tabel telt voor "volledig gelezen" (`plan-voortgang-en-inhoud.md`) als gelezen, een
+overgeslagen tabel niet als gat.
+
 ## Instellingen
 
 | Sleutel | Standaard | Betekenis |
@@ -73,6 +108,9 @@ markering. Bouwt op de pdf-weergave van het tabblad *Origineel* (gemerged, PR #2
 | `showImages` | `false` | afbeeldingen tonen (aan) of alleen het woord (uit) |
 | `imageSeconds` | `3` | toontijd in seconden; `0` = wachten op spatie |
 | `imageMinPixels` | `100` | kleinere plaatjes overslaan (breedte én hoogte) |
+| `showTables` | `false` | tabellen tonen (aan) of alleen [tabel] (uit) |
+| `tableTimeMode` | `"size"` | `"size"`: toontijd naar grootte (1 s per 4 cellen, 4–20 s) · `"fixed"`: vaste toontijd |
+| `tableSeconds` | `8` | vaste toontijd in seconden bij `tableTimeMode = "fixed"`; `0` = wachten op spatie |
 
 ## Tests
 
@@ -83,4 +121,5 @@ markering. Bouwt op de pdf-weergave van het tabblad *Origineel* (gemerged, PR #2
 
 ## Open punten voor Eddie
 
-Geen. Besluiten 2026-11-18: pdf meteen meenemen; bij "uit" **[foto]**.
+Geen. Besluiten 2026-11-18: afbeeldingen — pdf meteen meenemen, bij "uit" **[foto]**; tabellen — bij "uit"
+**[tabel]** en de celtekst overslaan, toontijd naar grootte met een schakelaar voor een vaste, zelf ingestelde tijd.

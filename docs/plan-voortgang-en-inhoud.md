@@ -101,7 +101,7 @@ interface TocEntry {            // in SavedDocument.toc
 | Pdf zonder inhoudsopgave | **geen kopjes**; de zijbalk toont pagina's in groepen (p. 1–10, 11–20, …) | zeker |
 | EPUB | `nav.xhtml` (EPUB 3) of `toc.ncx` (EPUB 2) → spine-bestand; de parser houdt per spine-bestand bij bij welk woord het begint | zeker per bestand |
 | Markdown | regels die met `#` beginnen | zeker |
-| Word (.docx) | `mammoth.convertToHtml` in plaats van `extractRawText`; koppen met de stijlen *Kop 1*, *Kop 2*, … worden `h1`, `h2`, …; zelfde omzetting als het plan *afbeeldingen* nodig heeft (één keer bouwen) | zeker voor koppen met kopstijl; zonder kopstijl geen inhoudsopgave |
+| Word (.docx) | `mammoth.convertToHtml` in plaats van `extractRawText`; koppen met de stijlen *Kop 1*, *Kop 2*, … worden `h1`, `h2`, …; zelfde omzetting als het plan *afbeeldingen en tabellen* nodig heeft (één keer bouwen) | zeker voor koppen met kopstijl; zonder kopstijl geen inhoudsopgave |
 | Word (.doc, oud formaat) | niet mogelijk: de bibliotheek leest het formaat niet; speeedy haalt er alleen losse tekst uit (`parseDocLegacy`) en adviseert opslaan als .docx | — |
 | HTML, ODT | later | — |
 
