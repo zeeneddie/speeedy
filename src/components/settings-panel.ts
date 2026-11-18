@@ -478,6 +478,12 @@ export class SettingsPanel extends LitElement {
               @change=${(e: CustomEvent) => this.emit({ showProgress: e.detail.value })}
             ></speeedy-toggle>
             <speeedy-toggle
+              label="Show reading sessions on the progress bar"
+              ?checked=${s.progressShowSessions ?? true}
+              tip="Under the progress bar, each session's read stretches show as blocks in alternating shades. Hover or tap a block for its details."
+              @change=${(e: CustomEvent) => this.emit({ progressShowSessions: e.detail.value })}
+            ></speeedy-toggle>
+            <speeedy-toggle
               label="Focus mode (immersion)"
               ?checked=${s.focusModeEnabled ?? false}
               tip="While playing, hide the header, progress bar, bottom controls, and settings so only words show. Tap the reading area or Space to pause and bring controls back. Toggle anytime with F."

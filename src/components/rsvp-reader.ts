@@ -2,6 +2,7 @@ import { html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import type {
+	DocSession,
 	Mark,
 	ParsedDocument,
 	ReaderSettings,
@@ -26,8 +27,15 @@ import {
 import {
 	type PlaybackState,
 	RSVPEngine,
+	tokenize,
 	type WordToken,
 } from "../services/rsvp-engine.js";
+import {
+	formatSessionInfo,
+	type SessionPiece,
+	sessionInfos,
+	sessionPieces,
+} from "../services/session-view.js";
 import { recordSession } from "../services/stats-service.js";
 import {
 	appendDocumentSession,
@@ -85,6 +93,16 @@ export class RsvpReader extends LitElement {
 		null;
 	/** Marked sentences of the current document. */
 	@state() private marks: Mark[] = [];
+	/** Stored reading sessions of the current document (the running one is not in here until saved). */
+	@state() private docSessions: DocSession[] = [];
+	private sessionLayerCache: {
+		sessions: DocSession[];
+		key: string;
+		pages: string[] | null;
+		pieces: SessionPiece[];
+		lines: string[];
+	} | null = null;
+	private sessionTipTimer: ReturnType<typeof setTimeout> | null = null;
 	@state() private showMarksList = false;
 	/** Brief confirmation after pressing M. */
 	@state() private markFlash: "added" | "removed" | null = null;
@@ -314,6 +332,7 @@ export class RsvpReader extends LitElement {
 	override disconnectedCallback(): void {
 		super.disconnectedCallback();
 		this._stopAutoSave();
+		this.hideSessionTip();
 		this.saveDocSession();
 		void this.persistProgress(this.engine.getState());
 		this.engine.stop();
@@ -408,12 +427,14 @@ export class RsvpReader extends LitElement {
 		this.docOriginal = { pages: null, blob: null, available: false };
 		this.pageStartsCache = null;
 		this.marks = [];
+		this.docSessions = [];
 		this.showMarksList = false;
 		this.originalFocusWord = null;
 		if (!id) return;
 		const doc = await getSavedDocument(id);
 		if (!doc || this.savedDocId !== id) return;
 		this.marks = doc.marks ?? [];
+		this.docSessions = doc.sessions ?? [];
 		// PDFs imported before tables of contents were kept: read it once from the stored original.
 		if (doc.original?.kind === "pdf" && doc.toc === undefined && doc.pages) {
 			void this.backfillPdfToc(id, doc.pages, doc.text);
@@ -459,6 +480,125 @@ export class RsvpReader extends LitElement {
 			};
 		}
 		return this.pageStartsCache.starts;
+	}
+
+	/**
+	 * Session blocks for the progress bar plus one tooltip line per session.
+	 * Cached per document, session list, filter setting and token stream: the
+	 * plain word count and page starts need a full tokenize of the document.
+	 */
+	private get sessionLayer(): { pieces: SessionPiece[]; lines: string[] } {
+		const key = `${this.savedDocId}|${this.settings.removeCitations}|${this.engine.tokens.length}`;
+		const pages = this.docOriginal.pages;
+		const cache = this.sessionLayerCache;
+		if (
+			cache &&
+			cache.sessions === this.docSessions &&
+			cache.key === key &&
+			cache.pages === pages
+		) {
+			return cache;
+		}
+		let pieces: SessionPiece[] = [];
+		let lines: string[] = [];
+		if (this.docSessions.length > 0 && this.rawDocText) {
+			// Without the filter the engine plays the plain stream, so its length is the plain count.
+			const filtered = this.settings.removeCitations;
+			const plainTotal = filtered
+				? tokenize(this.rawDocText).length
+				: this.engine.tokens.length;
+			if (filtered) this.toPlainMapper(); // builds this.wordMap for the current stream
+			pieces = sessionPieces(
+				this.docSessions,
+				plainTotal,
+				filtered ? this.wordMap?.map : undefined,
+			);
+			const plainPageStarts = pages
+				? computePageStarts(pages, this.rawDocText)
+				: null;
+			lines = sessionInfos(this.docSessions, plainPageStarts).map((info) =>
+				formatSessionInfo(info),
+			);
+		}
+		this.sessionLayerCache = {
+			sessions: this.docSessions,
+			key,
+			pages,
+			pieces,
+			lines,
+		};
+		return this.sessionLayerCache;
+	}
+
+	/** Shows the session line of the block under the pointer, or hides the tooltip when there is none. */
+	private showSessionTip(e: PointerEvent): void {
+		const band = e.currentTarget as HTMLElement;
+		const rect = band.getBoundingClientRect();
+		const ratio = (e.clientX - rect.left) / rect.width;
+		const { pieces, lines } = this.sessionLayer;
+		const i = pieces.findIndex(
+			(p) => ratio >= p.startFrac && ratio < p.endFrac,
+		);
+		const el = band.querySelector<HTMLElement>(`[data-piece="${i}"]`);
+		if (i < 0 || !el) {
+			this.hideSessionTip();
+			return;
+		}
+		window.dispatchEvent(
+			new CustomEvent("speeedy:show-tooltip", {
+				detail: { text: lines[pieces[i].sessionIndex - 1], target: el },
+			}),
+		);
+	}
+
+	private hideSessionTip(): void {
+		if (this.sessionTipTimer) clearTimeout(this.sessionTipTimer);
+		this.sessionTipTimer = null;
+		window.dispatchEvent(new CustomEvent("speeedy:hide-tooltip"));
+	}
+
+	/**
+	 * Second layer under the seek bar: the stretches read per session. It only
+	 * shows details (hover, or a tap on touch screens) and never seeks; the bar
+	 * above it keeps seeking.
+	 */
+	private renderSessionBand(totalWords: number) {
+		if (!this.settings.progressShowSessions || totalWords === 0) return nothing;
+		const { pieces } = this.sessionLayer;
+		if (pieces.length === 0) return nothing;
+		const tall = this.isProgressHovered || this.isSeeking;
+		return html`
+			<div
+				class="session-band w-full shrink-0 relative"
+				style="height: ${tall ? "8px" : "4px"}; transition: height 0.15s ease;"
+				@pointerenter=${() => {
+					this.isProgressHovered = true;
+				}}
+				@pointermove=${(e: PointerEvent) => {
+					if (e.pointerType === "mouse") this.showSessionTip(e);
+				}}
+				@pointerleave=${(e: PointerEvent) => {
+					if (!this.isSeeking) this.isProgressHovered = false;
+					if (e.pointerType === "mouse") this.hideSessionTip();
+				}}
+				@pointerdown=${(e: PointerEvent) => {
+					if (e.pointerType === "mouse") return;
+					this.showSessionTip(e);
+					if (this.sessionTipTimer) clearTimeout(this.sessionTipTimer);
+					this.sessionTipTimer = setTimeout(() => this.hideSessionTip(), 3000);
+				}}
+			>
+				${pieces.map(
+					(p, i) =>
+						html`<div
+							class="session-piece absolute top-0 bottom-0 pointer-events-none ${p.tint === 0 ? "bg-info" : "bg-info/45"}"
+							data-piece=${i}
+							data-session=${p.sessionIndex}
+							style="left: ${p.startFrac * 100}%; width: ${(p.endFrac - p.startFrac) * 100}%; min-width: 2px;"
+						></div>`,
+				)}
+			</div>
+		`;
 	}
 
 	private get markPrep(): "plain" | "noCitations" {
@@ -803,8 +943,14 @@ export class RsvpReader extends LitElement {
 			this.engine.tokens.length - 1,
 			Date.now(),
 		);
-		if (docSession && this.savedDocId) {
-			void appendDocumentSession(this.savedDocId, docSession);
+		const id = this.savedDocId;
+		if (docSession && id) {
+			void (async () => {
+				await appendDocumentSession(id, docSession);
+				// Show it on the bar once it is stored.
+				if (this.savedDocId === id)
+					this.docSessions = [...this.docSessions, docSession];
+			})();
 		}
 	}
 
@@ -1137,6 +1283,7 @@ export class RsvpReader extends LitElement {
 								: ""
 						}
 					</div>
+					${this.renderSessionBand(s?.totalWords ?? 0)}
 				`
 						: ""
 				}

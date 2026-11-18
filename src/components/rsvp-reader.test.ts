@@ -171,3 +171,77 @@ describe("rsvp-reader sessions", () => {
 		expect(appendSpy.mock.calls[0][1].spans).toEqual([{ start: 0, end: 7 }]);
 	});
 });
+
+describe("rsvp-reader session layer", () => {
+	const words = (n: number) => Array.from({ length: n }, (_, i) => `w${i}`);
+	const session = (
+		startedAt: string,
+		spans: { start: number; end: number }[],
+	) => ({
+		id: startedAt,
+		startedAt,
+		endedAt: startedAt,
+		durationMs: 120_000,
+		wordsRead: 50,
+		wpm: 300,
+		spans,
+	});
+	const mount = async (showSessions: boolean) => {
+		const reader = document.createElement("rsvp-reader");
+		const r = reader as unknown as ReaderInternals & {
+			docSessions: unknown[];
+			profile: unknown;
+			updateComplete: Promise<boolean>;
+			requestUpdate(): void;
+		};
+		r.profile = {
+			settings: { removeCitations: false, progressShowSessions: showSessions },
+		};
+		document.body.appendChild(reader);
+		const text = words(200).join(" ");
+		r.rawDocText = text;
+		r.engine.load(text, r.settings);
+		r.docSessions = [
+			session("2026-11-18T10:00:00Z", [{ start: 0, end: 49 }]),
+			// Second session read two stretches with a jump in between.
+			session("2026-11-18T12:00:00Z", [
+				{ start: 100, end: 119 },
+				{ start: 150, end: 199 },
+			]),
+		];
+		r.requestUpdate();
+		await r.updateComplete;
+		return reader;
+	};
+
+	it("draws one block per read stretch, alternating tints per session", async () => {
+		const el = await mount(true);
+		const pieces = [...el.querySelectorAll<HTMLElement>(".session-piece")];
+		const pct = (v: string) => Math.round(Number.parseFloat(v) * 100) / 100;
+		expect(
+			pieces.map((p) => [
+				p.dataset.session,
+				pct(p.style.left),
+				pct(p.style.width),
+			]),
+		).toEqual([
+			["1", 0, 25],
+			["2", 50, 10],
+			["2", 75, 25],
+		]);
+		expect(pieces[0].classList.contains("bg-info")).toBe(true);
+		expect(pieces[1].classList.contains("bg-info/45")).toBe(true);
+		// Blocks never take pointer events: clicks reach the seek bar.
+		expect(
+			pieces.every((p) => p.className.includes("pointer-events-none")),
+		).toBe(true);
+		el.remove();
+	});
+
+	it("draws nothing when progressShowSessions is off", async () => {
+		const el = await mount(false);
+		expect(el.querySelectorAll(".session-piece")).toHaveLength(0);
+		expect(el.querySelector(".session-band")).toBeNull();
+		el.remove();
+	});
+});
