@@ -26,16 +26,21 @@ valkuilen. De plannen zelf staan in `docs/plan-*.md`.
 | EPUB: twee secties met dezelfde titel in één spine-bestand krijgen dezelfde positie | fragment-id's naar woordpositie vertalen |
 | docx: kop in een tabelcel of tekstvak ontbreekt in de inhoudsopgave | alleen alinea's op het hoogste niveau krijgen een merkteken |
 | Korte sessies tellen niet mee in de profielstatistiek, wel in de voortgang als ze het einde halen | bewust: per ongeluk lezen hoort niet in de statistiek |
+| Bibliotheek rekent sessiestukken in plain woorden, ook met het citatenfilter aan (de lezer rekent gefilterd); breedtes wijken dan iets af | eenvoud; *Continue at first unread* rekent wél om en stapt 12 woorden terug |
+| Startpagina (RECENT) heeft nog het oude voortgangsbalkje | buiten fase 1; mee met voortgang fase 2 |
+| Seekbalk gebruikt `oklch(var(--b2))` (daisyUI v4-variabele, bestaat niet in v5) → geen achtergrond | bestaand, upstream |
 
 ## Wachtrij (plannen)
 
 | # | Plan | Bestand | Open punten |
 |---|---|---|---|
-| 1 | Voortgang en inhoud, fase 2–5 (inhoudsopgave links + totaal bovenaan, waar ben ik, context bij pauze, kaders) | `plan-voortgang-en-inhoud.md` | geen |
-| 2 | Afbeeldingen en tabellen (`[foto]`/`[tabel]`, pauze + tonen, toontijd) | `plan-afbeeldingen-en-tabellen.md` | geen |
-| 3 | Webpagina's (extensie Chrome+Edge = jetzt-opvolger, url via ophaaldienst, momentopname) | `plan-webpaginas.md` | geen |
-| 4 | Samenvatting (Opus via Max 20 / `claude -p`, eigen gecontroleerde bronverwijzingen) en beoordeling (duim + 1–10, per document en hoofdstuk) | `plan-samenvatting-en-beoordeling.md` | anonimiseren ja/nee |
-| 5 | Origineel fase 3–5 (gesplitst scherm, andere formaten, pdf met marks downloaden) | `plan-origineel-tabblad.md` | geen |
+| 1 | Marks: `M` = markeren (nooit weghalen), `U` = mark van de huidige zin weghalen — nu wist een tweede `M` in dezelfde zin de mark | `plan-origineel-tabblad.md` §Fase 2 | geen (besluit Eddie 18-11) |
+| 2 | Origineel fase 3: gesplitst scherm, meelezen in het origineel tijdens het lezen (pdf) | `plan-origineel-tabblad.md` | geen |
+| 3 | Voortgang en inhoud, fase 2–5 (inhoudsopgave links + totaal bovenaan, waar ben ik, context bij pauze, kaders) | `plan-voortgang-en-inhoud.md` | geen |
+| 4 | Origineel fase 4–5 (origineel voor docx/EPUB/Markdown, pdf met marks downloaden) | `plan-origineel-tabblad.md` | geen |
+| 5 | Afbeeldingen en tabellen (`[foto]`/`[tabel]`, pauze + tonen, toontijd) | `plan-afbeeldingen-en-tabellen.md` | geen |
+| 6 | Webpagina's (extensie Chrome+Edge = jetzt-opvolger, url via ophaaldienst, momentopname) | `plan-webpaginas.md` | geen |
+| 7 | Samenvatting (Opus via Max 20 / `claude -p`, eigen gecontroleerde bronverwijzingen) en beoordeling (duim + 1–10, per document en hoofdstuk) | `plan-samenvatting-en-beoordeling.md` | anonimiseren ja/nee |
 | — | Infra: speeedy in Docker op de **P620** (Dockerfile, compose, poort, Traefik + certificaat) — voorwaarde voor url-ophalen en samenvatting | — | nog niet ingepland |
 
 `plan-leesinformatie.md` is vervangen door `plan-voortgang-en-inhoud.md` (blijft staan als achtergrond).
