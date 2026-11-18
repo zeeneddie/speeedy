@@ -16,46 +16,51 @@ Besluiten Eddie 2026-11-18:
 - de samenvatting wordt **geschreven door AI (Claude)**, niet alleen uit de tekst geknipt;
 - cijfer **1–10**;
 - beoordelen **per document én per hoofdstuk**;
-- **apart plan**.
+- **apart plan**;
+- model **Opus**; samenvatting in **de taal van het document**;
+- via **ons Claude Max-abonnement (Max 20)**, zoals PO-Companion dat al doet: de `claude`-opdrachtregel (Claude Code)
+  op de server, zonder API-sleutel (`mq-PO-Companion/mq_brain/llm_adapters.py`).
 
 ## Zonder verzinsels: hoe
 
 Een samenvatting in eigen woorden kan iets beweren wat niet in de tekst staat. Daarom geldt: **elke zin van de
-samenvatting moet een bronverwijzing hebben naar de passage waar hij op steunt**, en een zin zonder bron wordt
-niet getoond.
+samenvatting moet een bronverwijzing hebben naar de passage waar hij op steunt**, en een zin zonder **gecontroleerde**
+bron wordt niet getoond.
 
-- **Citations van de Claude API** (algemeen beschikbaar, geen beta): het hoofdstuk gaat mee als *document* met
-  `citations: {enabled: true}`. Het antwoord komt terug in tekstblokken; elk blok met een bewering draagt een lijst
-  `citations` met de letterlijk geciteerde tekst (`cited_text`) en de plek.
-- **Plek tot op de zin.** Het hoofdstuk wordt aangeleverd als document met **eigen inhoudsblokken: één blok per
-  alinea** (`content_block_location`). Speeedy weet van elke alinea bij welk woord die begint, dus een verwijzing
-  wordt een exacte plek in de lezer en in het tabblad *Origineel*.
+- **Eigen bronverwijzingen** (de citatiefunctie van de API is er niet via de opdrachtregel). Het hoofdstuk gaat naar
+  Claude als **genummerde alinea's** (`[A12] …`). Claude antwoordt met per zin: de zin, het alineanummer en de
+  **letterlijke passage** waarop hij steunt.
 - **Controle in speeedy** voordat iets getoond wordt:
-  - een zin zonder verwijzing → weggelaten en geteld ("2 zinnen zonder bron weggelaten");
-  - de geciteerde tekst moet letterlijk in die alinea staan (normaliseren op spaties en leestekens) → anders weggelaten;
-  - bij het hoofdstuk staat hoeveel zinnen er bleven en hoeveel er vielen.
-- **Opdracht aan het model:** samenvatten in nette, zakelijke zinnen; alleen wat in de tekst staat; geen eigen
-  oordeel, geen achtergrondkennis, geen aanbevelingen. De zinnen die de lezer gemarkeerd heeft, gaan mee als
-  aanwijzing "deze passages vond de lezer belangrijk"; de samenvatting moet ze dekken.
-- Een **gestructureerd antwoord** (`output_config.format`) kan niet samen met citations (de API weigert die
-  combinatie); de samenvatting komt daarom als tekst met verwijzingen, en speeedy verwerkt die.
+  - een zin zonder alineanummer of passage → weggelaten;
+  - de passage moet **letterlijk** in die alinea staan (vergelijken na normaliseren van spaties, aanhalingstekens en
+    afbreekstreepjes) → anders weggelaten;
+  - een antwoord dat niet te lezen is → het hoofdstuk krijgt "samenvatting mislukt, opnieuw proberen";
+  - bij elk hoofdstuk staat hoeveel zinnen bleven en hoeveel er vielen.
+- **Plek tot op de zin.** Speeedy weet van elke alinea bij welk woord die begint; de passage wordt binnen de alinea
+  opgezocht. Een verwijzing wordt zo een exacte plek in de lezer en in het tabblad *Origineel*.
+- **Opdracht aan het model:** samenvatten in nette, zakelijke zinnen, **in de taal van het document**; alleen wat in de
+  tekst staat; geen eigen oordeel, geen achtergrondkennis, geen aanbevelingen. De zinnen die de lezer gemarkeerd heeft,
+  gaan mee als aanwijzing "deze passages vond de lezer belangrijk"; de samenvatting moet ze dekken.
+- **Tekst en opdracht gescheiden.** De documenttekst staat tussen begrenzers met een **willekeurige code per aanroep**
+  (zoals `_stdin_envelop` in PO-Companion), zodat tekst in een document zich niet als opdracht kan voordoen. De
+  controle hierboven vangt het daarna nog eens af: alles wat getoond wordt, staat letterlijk in de tekst.
 
-## Model, kosten en privacy
+## Model, gebruik en privacy
 
-- **Model:** `claude-opus-5-5` (de huidige standaard van Anthropic; $4 per miljoen tokens invoer, $20 uitvoer;
-  invoer uit de cache $0,20). Denkwerk kan op dit model niet uit; de diepte gaat via `effort` (standaard `medium`;
-  voor samenvatten volstaat `low` of `medium` — te meten op een paar hoofdstukken). Een goedkoper model kiezen is
-  aan Eddie (open punt 1), niet stilzwijgend.
-- **Weigeringen:** het model kan een verzoek weigeren (`stop_reason: "refusal"`). Speeedy controleert dat altijd;
-  de dienst zet de standaard terugvaloptie van de API aan (`fallbacks: "default"`), zodat een ander model het dan
-  overneemt.
-- **Kosten (schatting, vóór meting):** een boek van 300 pagina's is ruwweg 160.000 tokens invoer → circa $0,65
-  invoer + $0,20 uitvoer ≈ **$0,85 per boek**; een artikel van 5.000 woorden ≈ **$0,03**. Hele boeken in één keer
-  via de **Batches API**: de helft van de prijs, resultaat binnen enkele uren.
-- **Privacy:** de tekst gaat naar Anthropic. Daarom:
+- **Via de opdrachtregel:** `claude -p --output-format text --model opus`, de opdracht en de tekst via **stdin** (niet
+  als argument: dat is zichtbaar voor andere gebruikers op de server), met een tijdslimiet per aanroep — hetzelfde
+  patroon als `_call_claude_cli` in PO-Companion.
+- **Geen kosten per token**, wel de **gebruikslimieten van Max 20** (per tijdvenster). Een heel boek is ruwweg
+  160.000 tokens; daarom gaan hoofdstukken in een **wachtrij**, één of twee tegelijk. Loopt het venster vol, dan
+  wacht de rij en toont speeedy "wacht op gebruikslimiet, gaat verder om hh:mm". De korting voor batchverwerking van
+  de API geldt niet voor het abonnement.
+- **Voorwaarde:** op de P620 staat `claude` geïnstalleerd en ingelogd met het Max-account.
+- **Privacy:** de tekst gaat naar Anthropic (via het abonnement). Daarom:
   - alleen op een **knop** per document (*Maak samenvatting*), nooit automatisch;
   - een melding bij de eerste keer: "De tekst van dit document gaat naar Claude (Anthropic) om de samenvatting te maken";
-  - de API-sleutel staat **alleen op de server** (P620), nooit in de browser; geen opslag van teksten in de dienst.
+  - geen opslag van teksten of samenvattingen in de dienst.
+- **Anonimiseren:** PO-Companion haalt elke prompt door een anonimiseringspoort (klantdata). Voor speeedy (eigen
+  leesstof: boeken, artikelen) staat dat niet vast — open punt 1.
 
 ## Fase 0 — Beoordeling (zonder AI, kan eerst)
 
@@ -70,14 +75,15 @@ niet getoond.
 ## Fase 1 — Samenvattingsdienst op de P620
 
 - **Dienst** naast speeedy (zelfde Docker-container als de ophaaldienst uit het plan *webpagina's*):
-  `POST /summarize` met per hoofdstuk de alinea's (tekst + beginwoord), de gemarkeerde zinnen en de taal.
-- **Per hoofdstuk één verzoek** met citations; hoofdstukken parallel (begrensd). Lange hoofdstukken passen ruim in
-  het venster van 1 miljoen tokens; niets wordt ingekort.
-- **Prompt caching** op het document-blok als er meer verzoeken over hetzelfde hoofdstuk volgen (bijvoorbeeld
-  opnieuw maken met andere marks).
-- **Sleutel** uit de geheimenkluis van de server, niet in de code of de container-image.
-- **Toegang:** alleen voor wie speeedy op de server mag gebruiken; maximaal aantal verzoeken per dag (kostenrem).
+  `POST /summarize` met per hoofdstuk de genummerde alinea's (tekst + beginwoord), de gemarkeerde zinnen en de taal.
+- **Aanroep:** `claude -p --output-format text --model opus` via stdin, tijdslimiet per hoofdstuk; tekst en opdracht
+  gescheiden met een code per aanroep. Patroon en lessen overnemen uit `mq_brain/llm_adapters.py` (PO-Companion),
+  niet die code kopiëren: speeedy is TypeScript, de dienst krijgt een eigen kleine adapter.
+- **Wachtrij** per hoofdstuk, één tot twee tegelijk; stopt netjes bij de gebruikslimiet en gaat later verder.
+- **Toegang:** alleen voor wie speeedy op de server mag gebruiken.
 - **Geen opslag** in de dienst: het resultaat gaat terug naar de browser en wordt daar bij het document bewaard.
+- **Controle** (zie boven) gebeurt in speeedy zelf, niet in de dienst, zodat ook een fout in de dienst nooit een zin
+  zonder gecontroleerde bron oplevert.
 
 ## Fase 2 — Het aanhangsel in bibliotheek en lezer
 
@@ -100,21 +106,24 @@ niet getoond.
 - Controle: zin zonder verwijzing → weggelaten en geteld; verwijzing met tekst die niet in de alinea staat → weggelaten.
 - Bronnummer leidt naar het juiste woord in de lezer en de juiste plek in het origineel.
 - Beoordeling: opslaan, wijzigen, wissen; sorteren en filteren in de bibliotheek; per hoofdstuk.
-- Dienst: geen sleutel in de browser of de image; weigering (`refusal`) netjes afgehandeld; kostenrem werkt;
-  geen tekst in de logs.
-- Tests met de API gebruiken opgenomen antwoorden (geen echte aanroepen in de test).
+- Dienst: tekst via stdin, nooit in argv; begrenzer met code per aanroep; tijdslimiet; gebruikslimiet bereikt →
+  wachtrij pauzeert en meldt het; geen tekst in de logs.
+- **Geen echte Claude-aanroepen in de tests**: de aanroep van `claude` wordt nagebootst met opgenomen antwoorden
+  (zoals in PO-Companion; besluit 2026-08-31 "geen echte LLM-aanroepen in de testpoort").
 
 ## Volgorde en omvang (schatting)
 
 | Fase | Inhoud | Omvang | Voorwaarde |
 |---|---|---|---|
 | 0 | beoordeling per document en hoofdstuk, bibliotheek sorteren/filteren | 1–1,5 dag | inhoudsopgave (PR #4) |
-| 1 | samenvattingsdienst met citations en controle | 1,5–2 dagen | speeedy op de P620, API-sleutel |
+| 1 | samenvattingsdienst via `claude -p`, wachtrij, controle | 1,5–2 dagen | speeedy op de P620, `claude` ingelogd met Max |
 | 2 | aanhangsel in bibliotheek en lezer, bronnen klikbaar | 1,5 dag | fase 1; zijbalk uit *voortgang en inhoud* fase 2 |
 | 3 | samenvatting van het geheel | 1 dag | fase 2 |
 
 ## Open punten voor Eddie
 
-1. Model: `claude-opus-5-5` (standaard, beste kwaliteit) of het goedkopere `claude-sonnet-5-5` (circa de helft)?
-2. Taal van de samenvatting: altijd Nederlands, of de taal van het document?
-3. API-sleutel: een aparte sleutel voor speeedy (eigen kostenoverzicht en limiet), of de bestaande?
+Besluiten 2026-11-18: model Opus; taal van het document; via het Max 20-abonnement met de `claude`-opdrachtregel,
+zoals PO-Companion.
+
+1. Anonimiseren: moet de tekst, zoals in PO-Companion, eerst door de anonimiseringspoort (namen, plaatsen)? Voor
+   eigen leesstof lijkt dat niet nodig, en het kan de samenvatting minder leesbaar maken; bij klantdocumenten wel.
