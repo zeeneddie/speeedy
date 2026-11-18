@@ -3,6 +3,9 @@
 Opgesteld 2026-11-17 op verzoek van Eddie. Zes onderdelen, elk apart aan en uit te zetten, plus één
 hoofdschakelaar. Gebaseerd op de code van `zeeneddie/speeedy` op commit `028caa2` + de lokale opschoning.
 
+> **Vervangen door [plan-voortgang-en-inhoud.md](plan-voortgang-en-inhoud.md) (2026-11-18).** Dit bestand blijft staan als
+> achtergrond; de uitwerking en de stand staan in het nieuwe plan.
+>
 > **Wordt samengevoegd (besluit Eddie 2026-11-18).** Dit plan gaat samen met de nieuwe wens *sessies en
 > inhoudsopgave* op in één plan **voortgang en inhoud**, met één fundament voor kopjes en pagina's. Besluiten voor
 > dat deel:
