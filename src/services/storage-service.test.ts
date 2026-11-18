@@ -268,4 +268,50 @@ describe("storage-service documents", () => {
 			expect(store.size).toBe(20);
 		});
 	});
+
+	describe("marks", () => {
+		const mark = {
+			id: "m1",
+			createdAt: "2026-11-18T00:00:00.000Z",
+			page: 1,
+			startWord: 0,
+			endWord: 2,
+			prep: "plain" as const,
+			quote: "Hello there world.",
+		};
+
+		it("stores marks on the document", async () => {
+			store.set("doc", makeDoc({ id: "doc", text: "Hello there world." }));
+			const { updateDocumentMarks, getSavedDocument } = await import(
+				"./storage-service.js"
+			);
+			await updateDocumentMarks("doc", [mark]);
+			expect((await getSavedDocument("doc"))?.marks).toEqual([mark]);
+		});
+
+		it("never prunes a document that has marks", async () => {
+			for (let i = 0; i < 20; i++) {
+				store.set(
+					`d${i}`,
+					makeDoc({
+						id: `d${i}`,
+						text: `Text ${i}`,
+						savedAt: `2026-03-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`,
+						...(i === 0 ? { marks: [mark] } : {}),
+					}),
+				);
+			}
+			const { saveDocument } = await import("./storage-service.js");
+			await saveDocument({
+				title: "Newest",
+				text: "Newest text",
+				wordCount: 2,
+				resumeWordIndex: 0,
+				completionPercent: 0,
+			});
+
+			expect(store.has("d0")).toBe(true);
+			expect(store.size).toBe(21);
+		});
+	});
 });

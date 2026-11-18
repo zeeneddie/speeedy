@@ -120,6 +120,10 @@ export interface ReaderSettings {
 	originalHighlight: "word" | "page" | "off";
 	/** Clicking a word in the original continues reading from that word. */
 	originalClickToResume: boolean;
+	/** Press M to mark the current sentence; marks show in the reader and the original. */
+	marksEnabled: boolean;
+	/** Small ticks on the progress bar for each mark. */
+	marksShowInProgress: boolean;
 }
 
 export interface ReadingSession {
@@ -170,6 +174,23 @@ export interface ParsedDocument {
 	originalFile?: Blob;
 }
 
+/** Text preparation the reader applied when a mark was made; word indices only hold under the same one. */
+export type MarkPrep = "plain" | "noCitations";
+
+/** A marked sentence, to read back later in the original. */
+export interface Mark {
+	id: string;
+	createdAt: string;
+	/** Source page (0-based) when known. */
+	page: number | null;
+	/** First and last word of the sentence, under `prep`. */
+	startWord: number;
+	endWord: number;
+	prep: MarkPrep;
+	/** The sentence (first words of long ones), to find its place again. */
+	quote: string;
+}
+
 /** Kinds of original files that can be stored and shown. Only PDF for now. */
 export type OriginalKind = "pdf";
 
@@ -194,6 +215,8 @@ export interface SavedDocument {
 	pages?: string[];
 	/** Present when the original file is stored; absent for legacy docs or when storage was full. */
 	original?: OriginalRef;
+	/** Marked sentences; documents with marks are never pruned automatically. */
+	marks?: Mark[];
 }
 
 export interface OrpResult {

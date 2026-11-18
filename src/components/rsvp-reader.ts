@@ -2,13 +2,20 @@ import { html, LitElement, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import type {
+	Mark,
 	ParsedDocument,
 	ReaderSettings,
 	UserProfile,
 } from "../models/types.js";
 import { audioService } from "../services/audio-service.js";
 import { DEFAULT_SETTINGS } from "../services/defaults.js";
-import { computePageStarts } from "../services/page-map.js";
+import {
+	createMark,
+	markAt,
+	type ResolvedMark,
+	resolveMarks,
+} from "../services/marks.js";
+import { computePageStarts, pageForWord } from "../services/page-map.js";
 import { type PlaybackState, RSVPEngine } from "../services/rsvp-engine.js";
 import { recordSession } from "../services/stats-service.js";
 import {
@@ -16,6 +23,7 @@ import {
 	getSavedDocument,
 	getSavedDocuments,
 	saveDocument,
+	updateDocumentMarks,
 	updateDocumentProgress,
 } from "../services/storage-service.js";
 import { applyBionicReading } from "../services/text-parser.js";
@@ -62,6 +70,19 @@ export class RsvpReader extends LitElement {
 	} = { pages: null, blob: null, available: false };
 	private pageStartsCache: { key: string; starts: number[] | null } | null =
 		null;
+	/** Marked sentences of the current document. */
+	@state() private marks: Mark[] = [];
+	@state() private showMarksList = false;
+	/** Brief confirmation after pressing M. */
+	@state() private markFlash: "added" | "removed" | null = null;
+	/** Word the original should scroll to (from the marks list), without moving the reading position. */
+	@state() private originalFocusWord: number | null = null;
+	private markFlashTimer: ReturnType<typeof setTimeout> | null = null;
+	private resolvedMarksCache: {
+		marks: Mark[];
+		key: string;
+		resolved: ResolvedMark[];
+	} | null = null;
 	private wasPlayingBeforeSeek = false;
 	private countdownTimer: ReturnType<typeof setTimeout> | null = null;
 	private seekingPointerId: number | null = null;
@@ -113,10 +134,17 @@ export class RsvpReader extends LitElement {
 				if (this.readerTab === "original") this.readerTab = "read";
 				else void this.handleBack();
 				break;
+			case "m":
+			case "M":
+				void this.toggleMarkAtCurrent();
+				break;
 			case "o":
 			case "O":
 				if (this.readerTab === "original") this.readerTab = "read";
-				else void this.showOriginal();
+				else {
+					this.originalFocusWord = null;
+					void this.showOriginal();
+				}
 				break;
 			case "?":
 				this.showShortcuts = !this.showShortcuts;
@@ -354,9 +382,13 @@ export class RsvpReader extends LitElement {
 		this.readerTab = "read";
 		this.docOriginal = { pages: null, blob: null, available: false };
 		this.pageStartsCache = null;
+		this.marks = [];
+		this.showMarksList = false;
+		this.originalFocusWord = null;
 		if (!id) return;
 		const doc = await getSavedDocument(id);
 		if (!doc || this.savedDocId !== id) return;
+		this.marks = doc.marks ?? [];
 		this.docOriginal = {
 			pages: doc.pages ?? null,
 			blob: null,
@@ -381,6 +413,152 @@ export class RsvpReader extends LitElement {
 			};
 		}
 		return this.pageStartsCache.starts;
+	}
+
+	private get markPrep(): "plain" | "noCitations" {
+		return this.settings.removeCitations ? "noCitations" : "plain";
+	}
+
+	/** Marks placed on the token stream as the reader plays it now. */
+	private get resolvedMarks(): ResolvedMark[] {
+		const key = `${this.markPrep}|${this.engine.tokens.length}`;
+		const cache = this.resolvedMarksCache;
+		if (!cache || cache.marks !== this.marks || cache.key !== key) {
+			this.resolvedMarksCache = {
+				marks: this.marks,
+				key,
+				resolved: resolveMarks(this.marks, this.engine.tokens, this.markPrep),
+			};
+		}
+		return this.resolvedMarksCache?.resolved ?? [];
+	}
+
+	/** M: marks the sentence of the current word, or removes the mark that covers it. Reading continues. */
+	private async toggleMarkAtCurrent(): Promise<void> {
+		const id = this.savedDocId;
+		const state = this.engine.getState();
+		if (!this.settings.marksEnabled || !id || state.totalWords === 0) return;
+		const index = state.playing ? state.displayWordIndex : state.wordIndex;
+		const existing = markAt(this.resolvedMarks, index);
+		let next: Mark[];
+		if (existing) {
+			next = this.marks.filter((m) => m.id !== existing.mark.id);
+			this.flashMark("removed");
+		} else {
+			const starts = this.pageStarts;
+			const page = starts ? pageForWord(starts, index) : null;
+			next = [
+				...this.marks,
+				createMark(this.engine.tokens, index, this.markPrep, page),
+			];
+			this.flashMark("added");
+		}
+		this.marks = next;
+		await updateDocumentMarks(id, next);
+	}
+
+	private flashMark(kind: "added" | "removed"): void {
+		this.markFlash = kind;
+		if (this.markFlashTimer) clearTimeout(this.markFlashTimer);
+		this.markFlashTimer = setTimeout(() => {
+			this.markFlash = null;
+		}, 900);
+	}
+
+	private async deleteMark(markId: string): Promise<void> {
+		const id = this.savedDocId;
+		if (!id) return;
+		this.marks = this.marks.filter((m) => m.id !== markId);
+		await updateDocumentMarks(id, this.marks);
+	}
+
+	private readFromMark(r: ResolvedMark): void {
+		if (r.start === null) return;
+		const state = this.engine.getState();
+		if (state.playing) this.togglePlay();
+		this.engine.seekToWord(r.start);
+		void this.persistProgress(this.engine.getState());
+		this.readerTab = "read";
+		this.showMarksList = false;
+		this.requestUpdate();
+	}
+
+	private async showMarkInOriginal(r: ResolvedMark): Promise<void> {
+		if (r.start === null) return;
+		this.showMarksList = false;
+		this.originalFocusWord = r.start;
+		await this.showOriginal();
+	}
+
+	private renderMarksButton() {
+		if (!this.settings.marksEnabled || this.marks.length === 0) return nothing;
+		return html`
+			<button
+				type="button"
+				class="btn btn-ghost btn-sm min-h-[36px] gap-1.5 ${this.showMarksList ? "bg-base-200" : ""}"
+				aria-expanded=${this.showMarksList}
+				title="Marked sentences (M marks the current sentence)"
+				@click=${() => {
+					this.showMarksList = !this.showMarksList;
+				}}
+			>
+				<span class="w-2 h-2 rounded-full bg-warning inline-block"></span>
+				Marks (${this.marks.length})
+			</button>
+		`;
+	}
+
+	private renderMarksList() {
+		if (!this.showMarksList) return nothing;
+		const items = [...this.resolvedMarks].sort(
+			(a, b) => (a.start ?? a.mark.startWord) - (b.start ?? b.mark.startWord),
+		);
+		const firstWords = (quote: string) => {
+			const words = quote.split(" ");
+			return words.slice(0, 10).join(" ") + (words.length > 10 ? " …" : "");
+		};
+		return html`
+			<div
+				class="absolute right-4 top-16 z-[60] w-[min(26rem,calc(100vw-2rem))] max-h-[60vh] overflow-y-auto rounded-xl border border-base-200 bg-base-100 shadow-xl"
+				role="dialog"
+				aria-label="Marks"
+				@click=${(e: Event) => e.stopPropagation()}
+			>
+				<div class="flex items-center justify-between px-4 py-3 border-b border-base-200">
+					<span class="font-medium text-sm">Marks</span>
+					<button type="button" class="btn btn-ghost btn-xs" @click=${() => {
+						this.showMarksList = false;
+					}}>Close</button>
+				</div>
+				<ul class="divide-y divide-base-200">
+					${items.map(
+						(r) => html`
+						<li class="px-4 py-3 text-sm" data-testid="mark-item">
+							<div class="flex items-baseline justify-between gap-2 text-xs text-ui-muted mb-1">
+								<span>${r.mark.page !== null ? `Page ${r.mark.page + 1}` : "No page"}</span>
+								<span>${new Date(r.mark.createdAt).toLocaleDateString()}</span>
+							</div>
+							<p class="mb-2">${firstWords(r.mark.quote)}</p>
+							${
+								r.start === null
+									? html`<p class="text-xs text-warning mb-2">Place not found in the current text.</p>`
+									: nothing
+							}
+							<div class="flex gap-1">
+								${
+									this.docOriginal.available && this.settings.originalEnabled
+										? html`<button type="button" class="btn btn-xs" ?disabled=${r.start === null} @click=${() => void this.showMarkInOriginal(r)}>Show in original</button>`
+										: nothing
+								}
+								<button type="button" class="btn btn-xs btn-ghost" ?disabled=${r.start === null} @click=${() => this.readFromMark(r)}>Read from here</button>
+								<button type="button" class="btn btn-xs btn-ghost text-error ml-auto" @click=${() => void this.deleteMark(r.mark.id)}>Delete</button>
+							</div>
+						</li>
+					`,
+					)}
+				</ul>
+			</div>
+		`;
 	}
 
 	/** Switches to the original; pauses reading first (decision 2026-11-18). */
@@ -437,7 +615,10 @@ export class RsvpReader extends LitElement {
 					aria-selected=${this.readerTab === "original"}
 					?disabled=${!available}
 					title=${available ? "Show the original (O)" : "Import the file again to see the original"}
-					@click=${() => void this.showOriginal()}
+					@click=${() => {
+						this.originalFocusWord = null;
+						void this.showOriginal();
+					}}
 				>Original</button>
 			</div>
 		`;
@@ -767,7 +948,9 @@ export class RsvpReader extends LitElement {
 						</button>
 							<span class="text-xs md:text-sm text-base-content/70 truncate font-light tracking-wide">${this.docTitle || "No document"}</span>
 							${this.renderReaderTabs()}
+							${this.renderMarksButton()}
 						</div>
+						${this.renderMarksList()}
 						<div class="flex items-center gap-1 md:gap-2 shrink-0 relative z-50">
 							<span class="text-xs md:text-sm text-base-content/55 font-mono hidden md:block mr-2">
 								${s?.wordIndex ?? 0}<span class="text-ui-muted-subtle"> / ${s?.totalWords ?? 0}</span>
@@ -844,6 +1027,15 @@ export class RsvpReader extends LitElement {
 							class="h-full bg-primary pointer-events-none"
 							style="width: ${progress}%; transition: width ${this.isSeeking ? "0ms" : "300ms"} ease-out;"
 						></div>
+						${
+							this.settings.marksEnabled && this.settings.marksShowInProgress
+								? this.resolvedMarks.map((r) =>
+										r.start === null
+											? nothing
+											: html`<div class="mark-tick absolute top-0 bottom-0 w-0.5 bg-warning pointer-events-none" style="left: ${(r.start / Math.max(s?.totalWords ?? 1, 1)) * 100}%"></div>`,
+									)
+								: nothing
+						}
 						<!-- Seek thumb — visible on hover/drag -->
 						${
 							this.isProgressHovered || this.isSeeking
@@ -873,6 +1065,16 @@ export class RsvpReader extends LitElement {
 							.follow=${this.settings.originalFollow}
 							.highlight=${this.settings.originalHighlight}
 							.clickToResume=${this.settings.originalClickToResume}
+							.marks=${
+								this.settings.marksEnabled
+									? this.resolvedMarks.flatMap((r) =>
+											r.start !== null && r.end !== null
+												? [{ start: r.start, end: r.end }]
+												: [],
+										)
+									: []
+							}
+							.focusWord=${this.originalFocusWord}
 							@original-word-click=${this.onOriginalWordClick}
 						></original-pdf-viewer>
 					</div>
@@ -885,6 +1087,14 @@ export class RsvpReader extends LitElement {
 						class="flex-1 flex flex-col items-center justify-center cursor-pointer select-none overflow-hidden relative"
 						@click=${this.togglePlay}
 					>
+						${
+							this.markFlash
+								? html`<div class="mark-flash absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full bg-base-100/90 border border-base-200 px-3 py-1 text-xs shadow-sm pointer-events-none" role="status">
+										<span class="w-2 h-2 rounded-full ${this.markFlash === "added" ? "bg-warning" : "bg-base-content/30"}"></span>
+										${this.markFlash === "added" ? "Sentence marked" : "Mark removed"}
+									</div>`
+								: nothing
+						}
 						${
 							!s || s.totalWords === 0
 								? this.renderEmptyState()
@@ -1020,6 +1230,10 @@ export class RsvpReader extends LitElement {
 						({ token, idx }) => html`<span
               id="${idx === currentIdx ? "current-pause-word" : ""}"
               class="cursor-pointer rounded transition-colors duration-150 hover:bg-primary/20 whitespace-pre-wrap inline-block max-w-full break-all ${
+								this.settings.marksEnabled && markAt(this.resolvedMarks, idx)
+									? "bg-warning/30 "
+									: ""
+							}${
 								idx === currentIdx
 									? "bg-primary/30 text-primary font-bold px-1"
 									: idx < currentIdx
@@ -1510,6 +1724,7 @@ export class RsvpReader extends LitElement {
 			["↑  ↓", "Back / Forward 5 words"],
 			["R", "Restart from beginning"],
 			["O", "Show / hide the original (stored PDFs)"],
+			["M", "Mark / unmark the current sentence"],
 			["Esc", "Back to home"],
 			["?", "Toggle this overlay"],
 		];
