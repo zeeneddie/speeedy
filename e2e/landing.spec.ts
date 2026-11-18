@@ -20,7 +20,9 @@ test.describe("Landing page", () => {
 	});
 
 	test("shows the Open app link", async ({ page }) => {
-		const link = page.getByRole("link", { name: /open.*(app|reader)/i }).first();
+		const link = page
+			.getByRole("link", { name: /open.*(app|reader)/i })
+			.first();
 		await expect(link).toBeVisible();
 		await expect(link).toHaveAttribute("href", /#\/app/);
 	});

@@ -108,6 +108,8 @@ export interface ReaderSettings {
 	removeCitations: boolean;
 	/** When on, text scrolls horizontally left-to-right at WPM pace instead of RSVP flashing. */
 	tickerMode: boolean;
+	/** Largest file (bytes) accepted for import. Guards against the browser running out of memory. */
+	maxImportBytes: number;
 }
 
 export interface ReadingSession {
@@ -152,6 +154,20 @@ export interface ParsedDocument {
 	title: string;
 	text: string;
 	wordCount: number;
+	/** Text per source page (PDF only), in page order; blank pages are empty strings. */
+	pages?: string[];
+	/** The imported file itself, so the original can be shown next to the reader. Not persisted on the document. */
+	originalFile?: Blob;
+}
+
+/** Kinds of original files that can be stored and shown. Only PDF for now. */
+export type OriginalKind = "pdf";
+
+/** Metadata of the original file; the bytes live in the "originals" store under the document id. */
+export interface OriginalRef {
+	kind: OriginalKind;
+	mime: string;
+	bytes: number;
 }
 
 export interface SavedDocument {
@@ -164,6 +180,10 @@ export interface SavedDocument {
 	completionPercent: number;
 	/** SHA-256 hash of text for deduplication; optional for legacy docs. */
 	contentHash?: string;
+	/** Text per source page (PDF only); absent for legacy docs and formats without pages. */
+	pages?: string[];
+	/** Present when the original file is stored; absent for legacy docs or when storage was full. */
+	original?: OriginalRef;
 }
 
 export interface OrpResult {

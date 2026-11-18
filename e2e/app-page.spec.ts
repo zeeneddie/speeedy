@@ -36,7 +36,9 @@ test.describe("App page — intake flow", () => {
 		await textarea.evaluate((el) => {
 			el.dispatchEvent(
 				new CustomEvent("change", {
-					detail: { value: "Hello world. This is a test sentence for reading." },
+					detail: {
+						value: "Hello world. This is a test sentence for reading.",
+					},
 					bubbles: true,
 					composed: true,
 				}),

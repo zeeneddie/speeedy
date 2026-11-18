@@ -7,6 +7,7 @@ import type {
 	ThemeName,
 	UserProfile,
 } from "../models/types.js";
+import { DEFAULT_SETTINGS } from "../services/defaults.js";
 import { tokenize } from "../services/rsvp-engine.js";
 import {
 	deleteSavedDocument,
@@ -35,6 +36,12 @@ export class AppPage extends LitElement {
 	@state() private inputTab: "file" | "text" = "file";
 	@state() private loadedDocTitle = "";
 	@state() private loadedDocText = "";
+	/** Page texts and original file of the last parsed file, valid only while its text is unchanged. */
+	private loadedDocExtras: {
+		text: string;
+		pages?: string[];
+		originalFile?: Blob;
+	} | null = null;
 	@state() private customTitle = "";
 	@state() private savedDocs: SavedDocument[] = [];
 	@state() private welcomeDismissed = false;
@@ -135,6 +142,10 @@ export class AppPage extends LitElement {
 		this.pastedText = doc.text;
 		this.loadedDocTitle = doc.title;
 		this.loadedDocText = doc.text;
+		this.loadedDocExtras =
+			doc.pages || doc.originalFile
+				? { text: doc.text, pages: doc.pages, originalFile: doc.originalFile }
+				: null;
 		this.customTitle = doc.title;
 		this.error = "";
 		this.inputTab = "text";
@@ -189,6 +200,9 @@ export class AppPage extends LitElement {
 		const title = isModified ? `${baseTitle} – modified` : baseTitle;
 		const completionPercent =
 			wordCount > 0 ? Math.round((safeStart / wordCount) * 100) : 0;
+		// Pages and the original only describe the file as imported, not an edited text.
+		const extras =
+			this.loadedDocExtras?.text === text ? this.loadedDocExtras : null;
 		let saved: SavedDocument;
 		try {
 			saved = await saveDocument({
@@ -197,6 +211,8 @@ export class AppPage extends LitElement {
 				wordCount,
 				resumeWordIndex: safeStart,
 				completionPercent,
+				pages: extras?.pages,
+				originalFile: extras?.originalFile,
 			});
 		} catch (err) {
 			console.error("[speeedy] Failed to save document:", err);
@@ -205,6 +221,13 @@ export class AppPage extends LitElement {
 			showToast(this.error, "error");
 			return;
 		}
+		if (extras?.originalFile && !saved.original) {
+			showToast(
+				"Saved without the original file: not enough storage space.",
+				"info",
+			);
+		}
+		this.loadedDocExtras = null;
 		trackEvent("reader-opened", {
 			source: this.loadedDocTitle ? "file" : "paste",
 			words: wordCount,
@@ -420,7 +443,8 @@ export class AppPage extends LitElement {
 		return html`
       <speeedy-file-uploader
         label="Drop a file, or click to browse"
-        hint="PDF · DOCX · DOC · TXT · EPUB · RTF · HTML · ODT · and more · up to 50 MB"
+        hint="PDF · DOCX · DOC · TXT · EPUB · RTF · HTML · ODT · and more · up to ${Math.round((this.profile?.settings.maxImportBytes ?? DEFAULT_SETTINGS.maxImportBytes) / 1024 / 1024)} MB"
+        .maxBytes=${this.profile?.settings.maxImportBytes ?? DEFAULT_SETTINGS.maxImportBytes}
         @file-parsed=${this.handleFileParsed}
         @file-error=${this.handleFileError}
       ></speeedy-file-uploader>

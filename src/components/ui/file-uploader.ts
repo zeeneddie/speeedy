@@ -1,6 +1,7 @@
 import { html, LitElement } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { ParsedDocument } from "../../models/types.js";
+import { DEFAULT_SETTINGS } from "../../services/defaults.js";
 import { parseFile } from "../../services/text-parser.js";
 
 /**
@@ -34,7 +35,7 @@ export class SpeeedyFileUploader extends LitElement {
 		"PDF · DOCX · TXT · EPUB · and more · up to 50 MB";
 	/** Max file size in bytes (default 50 MB) */
 	@property({ type: Number, attribute: "max-bytes" }) maxBytes =
-		50 * 1024 * 1024;
+		DEFAULT_SETTINGS.maxImportBytes;
 	/** Compact mode: smaller padding, no icon */
 	@property({ type: Boolean }) compact = false;
 	/** Disable the uploader */
