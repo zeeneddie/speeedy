@@ -248,5 +248,5 @@ browsertest die de hoofdschakelaar uit zet en controleert dat de lezer er dan ui
 
 ## Open punten
 
-- Proef kaderherkenning (fase 4): welke boeken met kaders gebruiken we als testmateriaal? Liefst eigen
-  of vrij te gebruiken PDF's; geen klantdocumenten.
+- ~~Proef kaderherkenning: testmateriaal~~ — opgelost 2026-11-18: drie vrij bruikbare pdf's in
+  `test-fixtures/boxes/` (kader met rand, kader met achtergrond, twee kolommen zonder kaders als controle).

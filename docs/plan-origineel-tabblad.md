@@ -96,7 +96,10 @@ staat. De voortgang wordt opgeslagen zoals nu (`persistProgress`).
 - Woord zonder koppeling → alleen paginamarkering.
 - In de build geen verwijzingen naar externe adressen.
 
-## Fase 2 — Marks
+## Fase 2 — Marks ✅
+
+Gemerged op 2026-11-18 ([PR #3](https://github.com/zeeneddie/speeedy/pull/3)). Extra t.o.v. dit plan: een mark wordt ook
+teruggevonden als er citaatwoorden bij komen of wegvallen (citatenfilter omgezet).
 
 **Een mark zetten.** Tijdens het lezen druk je `M` (nu vrij). Het lezen gaat door; een kort puntje naast het
 woord bevestigt dat de mark staat. De mark omvat **de zin** waar het huidige woord in staat: van het eerste
@@ -217,7 +220,7 @@ vanzelf (de lezer voegt standaardwaarden samen, `rsvp-reader.ts:169`).
 |---|---|---|---|
 | 0 | origineel bewaren + paginagrenzen + tests | 1 dag | ✅ PR #1 |
 | 1 | tabblad, pdf-weergave, meelopen, woordkoppeling, huidig woord markeren, klikken om verder te lezen | 2,5–3,5 dagen | ✅ PR #2 |
-| 2 | marks: zetten, bewaren, tonen in origineel en lezer, lijst | 1,5–2 dagen | volgende (besluit 2026-11-18) |
+| 2 | marks: zetten, bewaren, tonen in origineel en lezer, lijst | 1,5–2 dagen | ✅ PR #3 |
 | 3 | gesplitst scherm | 1–1,5 dag | |
 | 4 | vaste koppeling voor andere formaten, opruimen | ½ dag | |
 | 5 | pdf met marks downloaden | ½–1 dag | later, na akkoord |
