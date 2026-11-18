@@ -58,6 +58,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
 	pomodoroSessionsBeforeLongBreak: 4,
 	removeCitations: false,
 	tickerMode: false,
+	maxImportBytes: 500 * 1024 * 1024,
 };
 
 export const AVATAR_EMOJIS = [

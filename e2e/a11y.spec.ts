@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { test, type Page } from "@playwright/test";
+import { type Page, test } from "@playwright/test";
 
 const routes = [
 	{ path: "/", name: "landing", ready: "marketing-page" },
@@ -19,19 +19,25 @@ const routes = [
 /** Unhide [data-reveal] / [data-tip-item] for axe (they start at opacity 0). */
 async function revealAllForA11y(page: Page): Promise<void> {
 	await page.evaluate(() => {
-		document.querySelectorAll<HTMLElement>("[data-reveal], [data-tip-item]").forEach((el) => {
-			el.style.opacity = "1";
-			el.style.transform = "none";
-		});
+		document
+			.querySelectorAll<HTMLElement>("[data-reveal], [data-tip-item]")
+			.forEach((el) => {
+				el.style.opacity = "1";
+				el.style.transform = "none";
+			});
 	});
 }
 
 test.describe("a11y (axe)", () => {
-	test("no serious, critical, or moderate violations on key routes", async ({ page }) => {
+	test("no serious, critical, or moderate violations on key routes", async ({
+		page,
+	}) => {
 		for (const { path, name, ready } of routes) {
 			await test.step(name, async () => {
 				await page.goto(path, { waitUntil: "load" });
-				await page.locator(ready).waitFor({ state: "visible", timeout: 15_000 });
+				await page
+					.locator(ready)
+					.waitFor({ state: "visible", timeout: 15_000 });
 				await revealAllForA11y(page);
 
 				const results = await new AxeBuilder({ page })
@@ -46,7 +52,12 @@ test.describe("a11y (axe)", () => {
 						? severe
 								.map(
 									(v) =>
-										`${v.id} (${v.impact}): ${v.help}\n  ${v.nodes.map((n) => n.html).slice(0, 12).join("\n  ")}${v.nodes.length > 12 ? `\n  … +${v.nodes.length - 12} more` : ""}`,
+										`${v.id} (${v.impact}): ${v.help}\n  ${v.nodes
+											.map((n) => n.html)
+											.slice(0, 12)
+											.join(
+												"\n  ",
+											)}${v.nodes.length > 12 ? `\n  … +${v.nodes.length - 12} more` : ""}`,
 								)
 								.join("\n\n")
 						: "";

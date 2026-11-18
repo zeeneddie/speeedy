@@ -183,6 +183,12 @@ async function parsePdf(file: File): Promise<ParsedDocument> {
 		title: file.name.replace(/\.pdf$/i, ""),
 		text,
 		wordCount: countWords(text),
+		pages: pageParts.map(cleanText),
+		// Some systems report an empty MIME type; the extension already said PDF.
+		originalFile:
+			file.type === "application/pdf"
+				? file
+				: new Blob([file], { type: "application/pdf" }),
 	};
 }
 

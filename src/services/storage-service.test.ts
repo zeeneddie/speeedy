@@ -1,45 +1,53 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SavedDocument } from "../models/types.js";
 
-const { store } = vi.hoisted(() => ({
+const { store, originals } = vi.hoisted(() => ({
+	/** The "documents" store. */
 	store: new Map<IDBValidKey, unknown>(),
+	/** The "originals" store. */
+	originals: new Map<IDBValidKey, unknown>(),
 }));
 
-vi.mock("idb", () => ({
-	openDB: vi.fn(async () => ({
-		getAll: async () => [...store.values()],
-		put: async (_storeName: string, value: { id: string }) => {
-			store.set(value.id, value);
-		},
-		get: async (_storeName: string, key: IDBValidKey) => store.get(key),
-		delete: async (_storeName: string, key: IDBValidKey) => {
-			store.delete(key);
-		},
-		transaction: () => {
-			const keys = [...store.keys()];
-			let index = 0;
-			const nextCursor = () => {
-				if (index >= keys.length) return null;
-				const key = keys[index++];
-				return {
-					get value() {
-						return store.get(key) ?? null;
-					},
-					delete: async () => {
-						store.delete(key);
-					},
-					continue: async () => nextCursor(),
+vi.mock("idb", () => {
+	const pick = (storeName: string) =>
+		storeName === "originals" ? originals : store;
+	return {
+		openDB: vi.fn(async () => ({
+			getAll: async (storeName: string) => [...pick(storeName).values()],
+			put: async (storeName: string, value: unknown, key?: IDBValidKey) => {
+				pick(storeName).set(key ?? (value as { id: string }).id, value);
+			},
+			get: async (storeName: string, key: IDBValidKey) =>
+				pick(storeName).get(key),
+			delete: async (storeName: string, key: IDBValidKey) => {
+				pick(storeName).delete(key);
+			},
+			transaction: () => {
+				const keys = [...store.keys()];
+				let index = 0;
+				const nextCursor = () => {
+					if (index >= keys.length) return null;
+					const key = keys[index++];
+					return {
+						get value() {
+							return store.get(key) ?? null;
+						},
+						delete: async () => {
+							store.delete(key);
+						},
+						continue: async () => nextCursor(),
+					};
 				};
-			};
-			return {
-				store: {
-					openCursor: async () => nextCursor(),
-				},
-				done: Promise.resolve(),
-			};
-		},
-	})),
-}));
+				return {
+					store: {
+						openCursor: async () => nextCursor(),
+					},
+					done: Promise.resolve(),
+				};
+			},
+		})),
+	};
+});
 
 function makeDoc(
 	overrides: Partial<SavedDocument> & Pick<SavedDocument, "id" | "text">,
@@ -57,7 +65,9 @@ function makeDoc(
 describe("storage-service documents", () => {
 	beforeEach(async () => {
 		store.clear();
+		originals.clear();
 		vi.resetModules();
+		vi.unstubAllGlobals();
 	});
 
 	it("treats null and incomplete records as invalid", async () => {
@@ -143,5 +153,119 @@ describe("storage-service documents", () => {
 		});
 
 		expect(saved.id).toBe("old");
+	});
+
+	describe("original files", () => {
+		const pdf = () => new Blob(["%PDF-1.4 fake"], { type: "application/pdf" });
+		const input = (text: string) => ({
+			title: "Book",
+			text,
+			wordCount: 2,
+			resumeWordIndex: 0,
+			completionPercent: 0,
+			pages: [text],
+		});
+
+		it("stores the original next to the document and returns it", async () => {
+			const { saveDocument, getOriginal } = await import(
+				"./storage-service.js"
+			);
+			const file = pdf();
+			const saved = await saveDocument({
+				...input("Page one"),
+				originalFile: file,
+			});
+
+			expect(saved.original).toEqual({
+				kind: "pdf",
+				mime: "application/pdf",
+				bytes: file.size,
+			});
+			expect(saved.pages).toEqual(["Page one"]);
+			expect((store.get(saved.id) as SavedDocument).original?.kind).toBe("pdf");
+			expect(store.get(saved.id)).not.toHaveProperty("originalFile");
+			await expect(getOriginal(saved.id)).resolves.toBe(file);
+		});
+
+		it("saves the text without the original when storage is full", async () => {
+			vi.stubGlobal("navigator", {
+				storage: {
+					estimate: async () => ({ quota: 100, usage: 99 }),
+				},
+			});
+			const { saveDocument, getOriginal } = await import(
+				"./storage-service.js"
+			);
+			const saved = await saveDocument({
+				...input("Full disk"),
+				originalFile: pdf(),
+			});
+
+			expect(saved.original).toBeUndefined();
+			expect(store.has(saved.id)).toBe(true);
+			await expect(getOriginal(saved.id)).resolves.toBeNull();
+		});
+
+		it("does not store originals of unsupported kinds", async () => {
+			const { saveDocument } = await import("./storage-service.js");
+			const saved = await saveDocument({
+				...input("Plain"),
+				originalFile: new Blob(["x"], { type: "text/plain" }),
+			});
+
+			expect(saved.original).toBeUndefined();
+			expect(originals.size).toBe(0);
+		});
+
+		it("attaches the original to an existing duplicate that had none", async () => {
+			store.set("old", makeDoc({ id: "old", text: "Same text" }));
+			const { saveDocument } = await import("./storage-service.js");
+			const saved = await saveDocument({
+				...input("Same text"),
+				originalFile: pdf(),
+			});
+
+			expect(saved.id).toBe("old");
+			expect(saved.original?.kind).toBe("pdf");
+			expect(saved.pages).toEqual(["Same text"]);
+			expect(originals.has("old")).toBe(true);
+		});
+
+		it("removes the original when the document is deleted", async () => {
+			const { saveDocument, deleteSavedDocument } = await import(
+				"./storage-service.js"
+			);
+			const saved = await saveDocument({
+				...input("Delete me"),
+				originalFile: pdf(),
+			});
+			expect(originals.has(saved.id)).toBe(true);
+
+			await deleteSavedDocument(saved.id);
+
+			expect(store.has(saved.id)).toBe(false);
+			expect(originals.has(saved.id)).toBe(false);
+		});
+
+		it("removes originals of documents pruned beyond the library limit", async () => {
+			for (let i = 0; i < 20; i++) {
+				store.set(
+					`d${i}`,
+					makeDoc({
+						id: `d${i}`,
+						text: `Text ${i}`,
+						savedAt: `2026-03-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`,
+					}),
+				);
+			}
+			originals.set("d0", pdf());
+
+			const { saveDocument } = await import("./storage-service.js");
+			await saveDocument({ ...input("Newest"), originalFile: pdf() });
+
+			expect(store.has("d0")).toBe(false);
+			expect(originals.has("d0")).toBe(false);
+			expect(store.size).toBe(20);
+		});
 	});
 });

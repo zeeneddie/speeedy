@@ -40,9 +40,7 @@ test.describe("Benchmark test flow", () => {
 		await doneBtn.click();
 
 		await expect(
-			page
-				.locator("text=Comprehension Quiz")
-				.or(page.locator("text=question")),
+			page.locator("text=Comprehension Quiz").or(page.locator("text=question")),
 		).toBeVisible({ timeout: 3000 });
 
 		let attempts = 0;
@@ -66,14 +64,10 @@ test.describe("Benchmark test flow", () => {
 		).toBeVisible({ timeout: 5000 });
 
 		await expect(page.locator("text=WPM").first()).toBeVisible();
-		await expect(
-			page.locator("text=Comprehension").first(),
-		).toBeVisible();
+		await expect(page.locator("text=Comprehension").first()).toBeVisible();
 	});
 
-	test("results page has a Start reading link to the app", async ({
-		page,
-	}) => {
+	test("results page has a Start reading link to the app", async ({ page }) => {
 		await page.getByRole("button", { name: /start reading/i }).click();
 		const startBtn = page.getByRole("button", { name: /start reading/i });
 		await startBtn.click();

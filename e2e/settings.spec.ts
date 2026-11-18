@@ -4,14 +4,19 @@ test.describe("Settings persistence", () => {
 	test("theme toggle persists across page reload", async ({ page }) => {
 		await page.goto("/#/app");
 
-		const getTheme = () =>
-			page.locator("html").getAttribute("data-theme");
+		const getTheme = () => page.locator("html").getAttribute("data-theme");
 
 		const initialTheme = await getTheme();
 
-		const themeBtn = page.locator("button[aria-label*='Theme'], button[title*='Theme']")
+		const themeBtn = page
+			.locator("button[aria-label*='Theme'], button[title*='Theme']")
 			.or(page.locator("button.theme-button"))
-			.or(page.locator("nav button").filter({ has: page.locator("svg") }).last());
+			.or(
+				page
+					.locator("nav button")
+					.filter({ has: page.locator("svg") })
+					.last(),
+			);
 		await themeBtn.first().click();
 
 		await page.waitForTimeout(200);
@@ -33,9 +38,9 @@ test.describe("Settings persistence", () => {
 
 	test("profile page is accessible", async ({ page }) => {
 		await page.goto("/#/profile");
-		await expect(
-			page.locator("text=Profile").first(),
-		).toBeVisible({ timeout: 3000 });
+		await expect(page.locator("text=Profile").first()).toBeVisible({
+			timeout: 3000,
+		});
 	});
 
 	test("stats page renders", async ({ page }) => {
@@ -62,15 +67,15 @@ test.describe("Settings persistence", () => {
 
 	test("privacy page renders", async ({ page }) => {
 		await page.goto("/#/privacy");
-		await expect(
-			page.locator("text=Privacy Policy").first(),
-		).toBeVisible({ timeout: 3000 });
+		await expect(page.locator("text=Privacy Policy").first()).toBeVisible({
+			timeout: 3000,
+		});
 	});
 
 	test("terms page renders", async ({ page }) => {
 		await page.goto("/#/terms");
-		await expect(
-			page.locator("text=Terms of Service").first(),
-		).toBeVisible({ timeout: 3000 });
+		await expect(page.locator("text=Terms of Service").first()).toBeVisible({
+			timeout: 3000,
+		});
 	});
 });

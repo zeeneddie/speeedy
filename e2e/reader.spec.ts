@@ -19,7 +19,9 @@ test.describe("RSVP Reader", () => {
 
 	test("reader mounts and shows a word display", async ({ page }) => {
 		await goToReaderWithText(page, SAMPLE);
-		await expect(page.locator(".reading-box, rsvp-reader").first()).toBeVisible();
+		await expect(
+			page.locator(".reading-box, rsvp-reader").first(),
+		).toBeVisible();
 	});
 
 	test("Space bar toggles play and pause", async ({ page }) => {

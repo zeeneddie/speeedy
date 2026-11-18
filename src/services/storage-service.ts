@@ -1,12 +1,19 @@
 import { type IDBPDatabase, openDB } from "idb";
-import type { SavedDocument, UserProfile } from "../models/types.js";
+import type {
+	OriginalKind,
+	OriginalRef,
+	SavedDocument,
+	UserProfile,
+} from "../models/types.js";
 import { DEFAULT_SETTINGS, getDefaultFontSize } from "./defaults.js";
 
 const DB_NAME = "speeedy-db";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const PROFILE_STORE = "profile";
 const PROFILE_KEY = "user-profile";
 const DOCS_STORE = "documents";
+/** Original files (Blob) keyed by document id; kept apart so library listings stay light. */
+const ORIGINALS_STORE = "originals";
 
 const MAX_SAVED_DOCS = 20;
 
@@ -22,6 +29,9 @@ async function getDb(): Promise<IDBPDatabase> {
 				}
 				if (oldVersion < 2 && !db.objectStoreNames.contains(DOCS_STORE)) {
 					db.createObjectStore(DOCS_STORE, { keyPath: "id" });
+				}
+				if (oldVersion < 3 && !db.objectStoreNames.contains(ORIGINALS_STORE)) {
+					db.createObjectStore(ORIGINALS_STORE);
 				}
 			} catch (err) {
 				console.error("[speeedy] IndexedDB upgrade failed:", err);
@@ -189,9 +199,67 @@ async function hashContent(text: string): Promise<string> {
 		.join("");
 }
 
+/** Original-file kinds that can be stored, by MIME type. */
+const ORIGINAL_KINDS: Record<string, OriginalKind> = {
+	"application/pdf": "pdf",
+};
+
+function originalKindOf(file: Blob): OriginalKind | null {
+	return ORIGINAL_KINDS[file.type] ?? null;
+}
+
+/** True when the browser reports room for `bytes` more (with 10% headroom), or cannot tell. */
+async function hasRoomFor(bytes: number): Promise<boolean> {
+	try {
+		const estimate = await navigator.storage?.estimate?.();
+		if (!estimate?.quota) return true;
+		return estimate.quota - (estimate.usage ?? 0) > bytes * 1.1;
+	} catch {
+		return true;
+	}
+}
+
+/**
+ * Stores the original file for a document. Returns its metadata, or null when it
+ * was not stored (unsupported kind, not enough room, or the write failed).
+ */
+async function storeOriginal(
+	db: IDBPDatabase,
+	docId: string,
+	file: Blob,
+): Promise<OriginalRef | null> {
+	const kind = originalKindOf(file);
+	if (!kind) return null;
+	if (!(await hasRoomFor(file.size))) return null;
+	try {
+		await navigator.storage?.persist?.();
+	} catch {
+		/* best effort: persistence is a request, not a requirement */
+	}
+	try {
+		await db.put(ORIGINALS_STORE, file, docId);
+		return { kind, mime: file.type, bytes: file.size };
+	} catch (err) {
+		console.warn("[speeedy] Original file not stored:", err);
+		return null;
+	}
+}
+
+export interface SaveDocumentInput
+	extends Omit<SavedDocument, "id" | "savedAt" | "original"> {
+	/** Original file to keep next to the text (PDF only for now). */
+	originalFile?: Blob;
+}
+
+/**
+ * Saves a document, de-duplicating on its text. When `originalFile` is given and
+ * can be stored, the result carries `original`; when it is given but could not be
+ * stored, the result has no `original` and the caller can tell the user.
+ */
 export async function saveDocument(
-	doc: Omit<SavedDocument, "id" | "savedAt">,
+	input: SaveDocumentInput,
 ): Promise<SavedDocument> {
+	const { originalFile, ...doc } = input;
 	const db = await getDb();
 	const contentHash = await hashContent(doc.text);
 	const all = await readSavedDocuments(db);
@@ -204,6 +272,11 @@ export async function saveDocument(
 				...existing,
 				savedAt: new Date().toISOString(),
 			};
+			if (!updated.pages && doc.pages) updated.pages = doc.pages;
+			if (!updated.original && originalFile) {
+				const original = await storeOriginal(db, existing.id, originalFile);
+				if (original) updated.original = original;
+			}
 			await db.put(DOCS_STORE, updated);
 			return updated;
 		}
@@ -215,9 +288,25 @@ export async function saveDocument(
 		savedAt: new Date().toISOString(),
 		contentHash,
 	};
+	if (originalFile) {
+		const original = await storeOriginal(db, saved.id, originalFile);
+		if (original) saved.original = original;
+	}
 	await db.put(DOCS_STORE, saved);
 	await pruneDocuments(db);
 	return saved;
+}
+
+/** The stored original file of a document, or null when there is none. */
+export async function getOriginal(docId: string): Promise<Blob | null> {
+	try {
+		const db = await getDb();
+		const blob = await db.get(ORIGINALS_STORE, docId);
+		return blob instanceof Blob ? blob : null;
+	} catch (err) {
+		console.error("[speeedy] Failed to load original file:", err);
+		return null;
+	}
 }
 
 export async function updateDocumentProgress(
@@ -234,6 +323,7 @@ export async function updateDocumentProgress(
 export async function deleteSavedDocument(id: string): Promise<void> {
 	const db = await getDb();
 	await db.delete(DOCS_STORE, id);
+	await db.delete(ORIGINALS_STORE, id);
 }
 
 async function pruneDocuments(db: IDBPDatabase): Promise<void> {
@@ -242,6 +332,7 @@ async function pruneDocuments(db: IDBPDatabase): Promise<void> {
 		const toDelete = all.slice(MAX_SAVED_DOCS);
 		for (const doc of toDelete) {
 			await db.delete(DOCS_STORE, doc.id);
+			await db.delete(ORIGINALS_STORE, doc.id);
 		}
 	}
 }

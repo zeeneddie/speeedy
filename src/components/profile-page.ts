@@ -16,7 +16,7 @@ import type {
 	SavedDocument,
 	UserProfile,
 } from "../models/types.js";
-import { AVATAR_EMOJIS } from "../services/defaults.js";
+import { AVATAR_EMOJIS, DEFAULT_SETTINGS } from "../services/defaults.js";
 import {
 	buildShareData,
 	downloadProfileBackup,
@@ -35,7 +35,7 @@ import {
 	saveProfile,
 } from "../services/storage-service.js";
 import { trackEvent } from "../utils/analytics.js";
-import { emitProfileUpdated, navigate } from "../utils/events.js";
+import { emitProfileUpdated, navigate, showToast } from "../utils/events.js";
 import { icon } from "../utils/icons.js";
 import "./share-card.ts";
 import "./ui/dialog.js";
@@ -82,13 +82,21 @@ export class ProfilePage extends LitElement {
 		e: CustomEvent<{ doc: ParsedDocument }>,
 	): Promise<void> => {
 		const doc = e.detail.doc;
-		await saveDocument({
+		const saved = await saveDocument({
 			title: doc.title,
 			text: doc.text,
 			wordCount: doc.wordCount,
 			resumeWordIndex: 0,
 			completionPercent: 0,
+			pages: doc.pages,
+			originalFile: doc.originalFile,
 		});
+		if (doc.originalFile && !saved.original) {
+			showToast(
+				"Saved without the original file: not enough storage space.",
+				"info",
+			);
+		}
 		this.savedDocs = await getSavedDocuments();
 		this.docUploadError = "";
 		this.docUploadSuccess = `"${doc.title}" added to your library.`;
@@ -590,6 +598,7 @@ export class ProfilePage extends LitElement {
 					compact
 					label="Add a document to your library"
 					hint="PDF · DOCX · TXT · EPUB · RTF · HTML · ODT · and more"
+					.maxBytes=${this.profile?.settings.maxImportBytes ?? DEFAULT_SETTINGS.maxImportBytes}
 					@file-parsed=${this.handleDocFileParsed}
 					@file-error=${this.handleDocFileError}
 				></speeedy-file-uploader>
