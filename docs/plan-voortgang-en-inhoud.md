@@ -20,7 +20,8 @@ Basis: speeedy op `main` na PR #3 (tabblad Origineel en marks).
 5. **Uit het plan leesinformatie:** waar ben ik (hoofdstuk, pagina), resterende tijd voor hoofdstuk en boek,
    sessiecijfers tijdens het lezen, context bij pauze, en kaders als intermezzo.
 
-Besluiten Eddie 2026-11-18: sessies in lezer én bibliotheek · "volledig gelezen" = gelezen stukken dekken alles ·
+Besluiten Eddie 2026-11-18: docx (Word) in fase 0, .doc niet · "volledig gelezen" bij 99% dekking met gaten tot 5
+woorden · sessies in lezer én bibliotheek · "volledig gelezen" = gelezen stukken dekken alles ·
 pdf zonder inhoudsopgave → pagina's als lijst · eerst marks (✅ PR #3), dan dit plan · plannen samengevoegd.
 Eerder (leesinformatie): standaard alleen tonen bij pauze · sessiecijfers standaard uit · pauzes alleen via
 Pomodoro · DOCX/HTML/ODT-koppen later · instellingen per boek later.
@@ -100,14 +101,18 @@ interface TocEntry {            // in SavedDocument.toc
 | Pdf zonder inhoudsopgave | **geen kopjes**; de zijbalk toont pagina's in groepen (p. 1–10, 11–20, …) | zeker |
 | EPUB | `nav.xhtml` (EPUB 3) of `toc.ncx` (EPUB 2) → spine-bestand; de parser houdt per spine-bestand bij bij welk woord het begint | zeker per bestand |
 | Markdown | regels die met `#` beginnen | zeker |
-| Word, HTML, ODT | later (besluit) | — |
+| Word (.docx) | `mammoth.convertToHtml` in plaats van `extractRawText`; koppen met de stijlen *Kop 1*, *Kop 2*, … worden `h1`, `h2`, …; zelfde omzetting als het plan *afbeeldingen* nodig heeft (één keer bouwen) | zeker voor koppen met kopstijl; zonder kopstijl geen inhoudsopgave |
+| Word (.doc, oud formaat) | niet mogelijk: de bibliotheek leest het formaat niet; speeedy haalt er alleen losse tekst uit (`parseDocLegacy`) en adviseert opslaan als .docx | — |
+| HTML, ODT | later | — |
 
 **Bestaande pdf's met een bewaard origineel** krijgen hun inhoudsopgave zonder opnieuw importeren: de outline wordt
 bij het eerste openen uit het origineel gelezen en bewaard. Andere bestaande documenten: opnieuw importeren.
 
 **Tests:** stukken worden gesplitst bij een sprong; korte sessies niet bewaard; koppeltabel plain ↔ filter klopt
 op de test-pdf; dekking en "volledig gelezen" met gaten van 5 en 6 woorden; outline van een pdf (fixture met
-inhoudsopgave nodig — open punt 1); EPUB-inhoudsopgave uit `test-fixtures/sample.epub`; Markdown-kopjes.
+inhoudsopgave: `test-fixtures/outline/`); EPUB-inhoudsopgave uit `test-fixtures/sample.epub`; Markdown-kopjes;
+docx met kopstijlen (kleine fixture maken) en docx zonder kopstijlen (geen inhoudsopgave); bestaande docx-tekst
+blijft gelijk na de omschakeling naar `convertToHtml`.
 
 ## Fase 1 — Sessies zichtbaar
 
@@ -186,7 +191,7 @@ Ongewijzigd uit plan leesinformatie: kaders in pdf's herkennen, verplaatsen naar
 
 | Fase | Inhoud | Omvang |
 |---|---|---|
-| 0 | gelezen stukken, sessies per document, koppeltabel filter, inhoudsopgave (pdf-outline, EPUB, Markdown) | 2–2,5 dagen |
+| 0 | gelezen stukken, sessies per document, koppeltabel filter, inhoudsopgave (pdf-outline, EPUB, Markdown, docx) | 2,5–3 dagen |
 | 1 | sessies op de voortgangsbalk en in de bibliotheek, volledig gelezen | 1–1,5 dag |
 | 2 | inhoudsopgave-zijbalk, voortgang per kopje, totale voortgang bovenaan | 1,5–2 dagen |
 | 3 | waar ben ik, resterende tijd, sessiecijfers | 1 dag |
@@ -206,6 +211,5 @@ Elke fase is één PR op `zeeneddie/speeedy`, met unit-tests en een browsertest.
 
 ## Open punten voor Eddie
 
-1. Voor de test van de pdf-inhoudsopgave is een vrij bruikbare pdf **met** ingebouwde inhoudsopgave nodig. Zal ik
-   die zoeken en aan `test-fixtures/` toevoegen, zoals bij de kaders?
-2. "Volledig gelezen" bij 99% dekking met gaten tot 5 woorden: akkoord als startwaarde?
+Geen. Besluiten 2026-11-18: test-pdf met inhoudsopgave toegevoegd (`test-fixtures/outline/`); docx in fase 0;
+"volledig gelezen" bij 99% dekking met gaten tot 5 woorden.
