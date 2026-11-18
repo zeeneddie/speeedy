@@ -47,6 +47,7 @@ import { trackEvent, wpmBracket } from "../utils/analytics.js";
 import { emitProfileUpdated, navigate, showToast } from "../utils/events.js";
 import { stripCitations } from "../utils/text-utils.js";
 import type { OriginalWordClickDetail } from "./original-pdf-viewer.ts";
+import { SESSION_TINTS, SessionTip, sessionBandLabel } from "./session-band.ts";
 import "./settings-panel.ts";
 import "./wellness-overlay.ts";
 
@@ -95,8 +96,9 @@ export class RsvpReader extends LitElement {
 		pages: string[] | null;
 		pieces: SessionPiece[];
 		lines: string[];
+		label: string;
 	} | null = null;
-	private sessionTipTimer: ReturnType<typeof setTimeout> | null = null;
+	private sessionTip = new SessionTip();
 	@state() private showMarksList = false;
 	/** Brief confirmation after pressing M. */
 	@state() private markFlash: "added" | "removed" | null = null;
@@ -326,7 +328,7 @@ export class RsvpReader extends LitElement {
 	override disconnectedCallback(): void {
 		super.disconnectedCallback();
 		this._stopAutoSave();
-		this.hideSessionTip();
+		this.sessionTip.hide();
 		this.saveDocSession();
 		void this.persistProgress(this.engine.getState());
 		this.engine.stop();
@@ -481,7 +483,11 @@ export class RsvpReader extends LitElement {
 	 * Cached per document, session list, filter setting and token stream: the
 	 * plain word count and page starts need a full tokenize of the document.
 	 */
-	private get sessionLayer(): { pieces: SessionPiece[]; lines: string[] } {
+	private get sessionLayer(): {
+		pieces: SessionPiece[];
+		lines: string[];
+		label: string;
+	} {
 		const key = `${this.savedDocId}|${this.settings.removeCitations}|${this.engine.tokens.length}`;
 		const pages = this.docOriginal.pages;
 		const cache = this.sessionLayerCache;
@@ -495,16 +501,16 @@ export class RsvpReader extends LitElement {
 		}
 		let pieces: SessionPiece[] = [];
 		let lines: string[] = [];
+		let label = "";
 		if (this.docSessions.length > 0 && this.rawDocText) {
 			const removeCitations = this.settings.removeCitations;
 			if (removeCitations) this.toPlainMapper(); // builds this.wordMap for the current stream
-			({ pieces, lines } = sessionView(
-				this.rawDocText,
-				pages,
-				this.docSessions,
-				// Only the pieces and lines are shown here; the summary is the library's.
-				{ wordMap: removeCitations ? this.wordMap?.map : undefined },
-			));
+			const view = sessionView(this.rawDocText, pages, this.docSessions, {
+				removeCitations,
+				wordMap: removeCitations ? this.wordMap?.map : undefined,
+			});
+			({ pieces, lines } = view);
+			label = sessionBandLabel(view.summary);
 		}
 		this.sessionLayerCache = {
 			sessions: this.docSessions,
@@ -512,39 +518,9 @@ export class RsvpReader extends LitElement {
 			pages,
 			pieces,
 			lines,
+			label,
 		};
 		return this.sessionLayerCache;
-	}
-
-	/** Shows the session line of the block under the pointer, or hides the tooltip when there is none. */
-	private showSessionTip(e: PointerEvent): void {
-		const band = e.currentTarget as HTMLElement;
-		const rect = band.getBoundingClientRect();
-		const ratio = (e.clientX - rect.left) / rect.width;
-		const { pieces, lines } = this.sessionLayer;
-		// Later sessions are drawn on top: the last piece under the pointer wins.
-		let i = pieces.length - 1;
-		while (
-			i >= 0 &&
-			!(ratio >= pieces[i].startFrac && ratio < pieces[i].endFrac)
-		)
-			i--;
-		const el = band.querySelector<HTMLElement>(`[data-piece="${i}"]`);
-		if (i < 0 || !el) {
-			this.hideSessionTip();
-			return;
-		}
-		window.dispatchEvent(
-			new CustomEvent("speeedy:show-tooltip", {
-				detail: { text: lines[pieces[i].sessionIndex - 1], target: el },
-			}),
-		);
-	}
-
-	private hideSessionTip(): void {
-		if (this.sessionTipTimer) clearTimeout(this.sessionTipTimer);
-		this.sessionTipTimer = null;
-		window.dispatchEvent(new CustomEvent("speeedy:hide-tooltip"));
 	}
 
 	/**
@@ -554,34 +530,37 @@ export class RsvpReader extends LitElement {
 	 */
 	private renderSessionBand(totalWords: number) {
 		if (!this.settings.progressShowSessions || totalWords === 0) return nothing;
-		const { pieces } = this.sessionLayer;
+		const { pieces, lines, label } = this.sessionLayer;
 		if (pieces.length === 0) return nothing;
 		const tall = this.isProgressHovered || this.isSeeking;
 		return html`
 			<div
-				class="session-band w-full shrink-0 relative"
+				class="session-band w-full shrink-0 relative z-10"
 				style="height: ${tall ? "8px" : "4px"}; transition: height 0.15s ease;"
+				role="img"
+				aria-label=${label}
 				@pointerenter=${() => {
 					this.isProgressHovered = true;
 				}}
 				@pointermove=${(e: PointerEvent) => {
-					if (e.pointerType === "mouse") this.showSessionTip(e);
+					if (e.pointerType === "mouse")
+						this.sessionTip.showAt(e, pieces, lines);
 				}}
 				@pointerleave=${(e: PointerEvent) => {
 					if (!this.isSeeking) this.isProgressHovered = false;
-					if (e.pointerType === "mouse") this.hideSessionTip();
+					if (e.pointerType === "mouse") this.sessionTip.hide();
 				}}
 				@pointerdown=${(e: PointerEvent) => {
-					if (e.pointerType === "mouse") return;
-					this.showSessionTip(e);
-					if (this.sessionTipTimer) clearTimeout(this.sessionTipTimer);
-					this.sessionTipTimer = setTimeout(() => this.hideSessionTip(), 3000);
+					if (e.pointerType !== "mouse")
+						this.sessionTip.showAt(e, pieces, lines);
 				}}
 			>
+				<!-- Invisible 24px touch target from the band's top edge downwards; it stays off the seek bar above. -->
+				<div class="session-band-hit absolute inset-x-0 top-0 h-6"></div>
 				${pieces.map(
 					(p, i) =>
 						html`<div
-							class="session-piece absolute top-0 bottom-0 pointer-events-none ${p.tint === 0 ? "bg-info" : "bg-info/45"}"
+							class="session-piece absolute top-0 bottom-0 pointer-events-none ${SESSION_TINTS[p.tint]}"
 							data-piece=${i}
 							data-session=${p.sessionIndex}
 							style="left: ${p.startFrac * 100}%; width: ${(p.endFrac - p.startFrac) * 100}%; min-width: 2px;"
@@ -1277,9 +1256,14 @@ export class RsvpReader extends LitElement {
 								: ""
 						}
 					</div>
-					${this.renderSessionBand(s?.totalWords ?? 0)}
 				`
 						: ""
+				}
+				${
+					// The session band has its own setting: it also shows without the progress bar.
+					!focusModeActive && this.readerTab === "read"
+						? this.renderSessionBand(s?.totalWords ?? 0)
+						: nothing
 				}
 
 					${

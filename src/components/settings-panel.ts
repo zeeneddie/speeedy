@@ -478,9 +478,9 @@ export class SettingsPanel extends LitElement {
               @change=${(e: CustomEvent) => this.emit({ showProgress: e.detail.value })}
             ></speeedy-toggle>
             <speeedy-toggle
-              label="Show reading sessions on the progress bar"
+              label="Show reading sessions"
               ?checked=${s.progressShowSessions ?? true}
-              tip="Under the progress bar, each session's read stretches show as blocks in alternating shades. Hover or tap a block for its details."
+              tip="A thin band at the top of the reader (under the progress bar when it is on) shows each session's read stretches as blocks in alternating shades. Hover or tap a block for its details."
               @change=${(e: CustomEvent) => this.emit({ progressShowSessions: e.detail.value })}
             ></speeedy-toggle>
             <speeedy-toggle

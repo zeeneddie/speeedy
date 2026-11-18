@@ -154,6 +154,8 @@ export function formatSessionInfo(
 export interface ReadingSummary {
 	fullyRead: boolean;
 	sessionCount: number;
+	/** Share of the document read, as {@link coverage} reports it (0–1). */
+	readRatio: number;
 	/**
 	 * Plain index of the first unread word (start of the first gap larger than
 	 * the tolerance); null when fully read or the document is empty. To jump
@@ -176,6 +178,7 @@ export function readingSummary(
 	return {
 		fullyRead: cov.fullyRead,
 		sessionCount: list.length,
+		readRatio: cov.ratio,
 		firstUnreadWord:
 			cov.fullyRead || totalWords <= 0 ? null : (cov.gaps[0]?.start ?? 0),
 	};

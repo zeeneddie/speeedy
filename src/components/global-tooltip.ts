@@ -72,10 +72,12 @@ export class GlobalTooltip extends LitElement {
 	}
 
 	private handleShow = (
-		e: CustomEvent<{ text: string; target: HTMLElement }>,
+		e: CustomEvent<{ text: string; target: HTMLElement; above?: HTMLElement }>,
 	) => {
 		this.text = e.detail.text;
 		const rect = e.detail.target.getBoundingClientRect();
+		// With `above`, the tip points at the target but sits above that element (e.g. a card, so it covers no title).
+		const anchor = e.detail.above?.getBoundingClientRect() ?? rect;
 		const vw = window.innerWidth;
 		const vh = window.innerHeight;
 		const isMobile = vw < 768;
@@ -86,7 +88,7 @@ export class GlobalTooltip extends LitElement {
 			const tipWidth = 200;
 			const spaceRight = vw - rect.right - 12;
 
-			if (spaceRight >= tipWidth) {
+			if (spaceRight >= tipWidth && !e.detail.above) {
 				this.style.left = `${rect.right + 8}px`;
 				this.style.top = `${rect.top + rect.height / 2}px`;
 				this.style.transformOrigin = "left center";
@@ -94,7 +96,7 @@ export class GlobalTooltip extends LitElement {
 				this.classList.add("side-right");
 			} else {
 				this.style.left = `${Math.min(rect.left + rect.width / 2, vw - tipWidth / 2 - 12)}px`;
-				this.style.top = `${Math.max(rect.top - 8, 8)}px`;
+				this.style.top = `${Math.max(anchor.top - 8, 8)}px`;
 				this.style.transformOrigin = "bottom center";
 				this.style.transform = "translate(-50%, -100%)";
 			}
@@ -102,7 +104,7 @@ export class GlobalTooltip extends LitElement {
 			const tipWidth = 200;
 			let left = rect.left + rect.width / 2;
 			left = Math.max(tipWidth / 2 + 8, Math.min(left, vw - tipWidth / 2 - 8));
-			const top = Math.max(rect.top - 8, 8);
+			const top = Math.max(anchor.top - 8, 8);
 			this.style.left = `${left}px`;
 			this.style.top = `${top}px`;
 			this.style.transformOrigin = "bottom center";
@@ -119,7 +121,7 @@ export class GlobalTooltip extends LitElement {
 		requestAnimationFrame(() => {
 			const box = this.getBoundingClientRect();
 			if (box.top < 4) {
-				this.style.top = `${rect.bottom + 8}px`;
+				this.style.top = `${anchor.bottom + 8}px`;
 				this.style.transformOrigin = "top center";
 				this.style.transform = "translate(-50%, 0%)";
 			}

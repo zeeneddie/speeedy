@@ -194,12 +194,14 @@ describe("readingSummary", () => {
 		expect(atThreshold).toEqual({
 			fullyRead: true,
 			sessionCount: 1,
+			readRatio: 0.99,
 			firstUnreadWord: null,
 		});
 		const below = readingSummary([session([[0, 988]])], 1000);
 		expect(below).toEqual({
 			fullyRead: false,
 			sessionCount: 1,
+			readRatio: 0.989,
 			firstUnreadWord: 989,
 		});
 	});
@@ -225,16 +227,19 @@ describe("readingSummary", () => {
 		expect(readingSummary(undefined, 1000)).toEqual({
 			fullyRead: false,
 			sessionCount: 0,
+			readRatio: 0,
 			firstUnreadWord: 0,
 		});
 		expect(readingSummary([], 3)).toEqual({
 			fullyRead: false,
 			sessionCount: 0,
+			readRatio: 0,
 			firstUnreadWord: 0,
 		});
 		expect(readingSummary([], 0)).toEqual({
 			fullyRead: false,
 			sessionCount: 0,
+			readRatio: 0,
 			firstUnreadWord: null,
 		});
 	});
@@ -253,10 +258,16 @@ describe("sessionView", () => {
 		const sessions = [session([[0, 299]])];
 		expect(
 			sessionView(text, null, sessions, { removeCitations: true }).summary,
-		).toEqual({ fullyRead: true, sessionCount: 1, firstUnreadWord: null });
+		).toEqual({
+			fullyRead: true,
+			sessionCount: 1,
+			readRatio: 1,
+			firstUnreadWord: null,
+		});
 		expect(sessionView(text, null, sessions).summary).toEqual({
 			fullyRead: false,
 			sessionCount: 1,
+			readRatio: 300 / 307,
 			firstUnreadWord: 300,
 		});
 	});

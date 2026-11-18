@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { DocSession, SavedDocument } from "../models/types.js";
 import { DEFAULT_SETTINGS } from "../services/defaults.js";
+import { SESSION_TINTS } from "./session-band.js";
 
 const { docs } = vi.hoisted(() => ({ docs: [] as SavedDocument[] }));
 vi.mock("../services/storage-service.js", async (importOriginal) => {
@@ -73,6 +74,19 @@ async function renderLibrary(removeCitations = false): Promise<PageInternals> {
 	return el;
 }
 
+/** Moves the mouse over the band of `cardEl`, at `frac` of its width (jsdom has no layout: width 200px). */
+function hoverBand(cardEl: HTMLElement, frac: number): void {
+	const band = cardEl.querySelector<HTMLElement>(".library-session-band");
+	if (!band) throw new Error("no session band");
+	band.getBoundingClientRect = () => ({ left: 0, width: 200 }) as DOMRect;
+	band.dispatchEvent(
+		Object.assign(new Event("pointermove"), {
+			pointerType: "mouse",
+			clientX: frac * 200,
+		}),
+	);
+}
+
 function card(el: HTMLElement, title: string): HTMLElement {
 	const titleEl = [...el.querySelectorAll(".font-semibold.truncate")].find(
 		(t) => t.textContent?.trim() === title,
@@ -105,8 +119,11 @@ describe("profile-page library sessions", () => {
 		const pct = (v: string) => Math.round(Number.parseFloat(v));
 		expect(pieces.map((p) => pct(p.style.left))).toEqual([0, 60]);
 		expect(pieces.map((p) => pct(p.style.width))).toEqual([20, 20]);
-		expect(pieces[0].classList.contains("bg-info")).toBe(true);
-		expect(pieces[1].classList.contains("bg-info/45")).toBe(true);
+		expect(pieces[0].className).toContain(SESSION_TINTS[0]);
+		expect(pieces[1].className).toContain(SESSION_TINTS[1]);
+		const band = gap.querySelector(".library-session-band");
+		expect(band?.getAttribute("role")).toBe("img");
+		expect(band?.getAttribute("aria-label")).toBe("2 sessions, 40% read");
 		expect(gap.textContent).toContain("2 sessions");
 		expect(gap.textContent).not.toContain("Fully read");
 		expect(gap.textContent).toContain("Continue at first unread");
@@ -122,17 +139,41 @@ describe("profile-page library sessions", () => {
 		expect(fresh.textContent).not.toContain("session");
 		expect(fresh.textContent).not.toContain("Continue at first unread");
 
-		// Hover on a block shows that session's line.
-		const shown: string[] = [];
+		// Hover on a block shows that session's line, placed above the card.
+		const shown: { text: string; above?: HTMLElement }[] = [];
 		const onShow = (e: Event) =>
-			shown.push((e as CustomEvent<{ text: string }>).detail.text);
+			shown.push(
+				(e as CustomEvent<{ text: string; above?: HTMLElement }>).detail,
+			);
 		window.addEventListener("speeedy:show-tooltip", onShow);
-		pieces[1].dispatchEvent(
-			Object.assign(new Event("pointerenter"), { pointerType: "mouse" }),
-		);
+		hoverBand(gap, 0.65);
 		window.removeEventListener("speeedy:show-tooltip", onShow);
 		expect(shown).toHaveLength(1);
-		expect(shown[0]).toMatch(/^Session 2 · .* · 2 min · 300 wpm$/);
+		expect(shown[0].text).toMatch(/^Session 2 · .* · 2 min · 300 wpm$/);
+		expect(shown[0].above).toBe(gap);
+		el.remove();
+	});
+
+	it("draws no completion bar: the resume button carries the percentage", async () => {
+		docs.length = 0;
+		docs.push(
+			{ ...doc("old", words(100)), completionPercent: 50 },
+			{
+				...doc("read", words(100), [
+					session("a", "2026-11-18T09:00:00.000Z", [{ start: 0, end: 49 }]),
+				]),
+				completionPercent: 50,
+			},
+		);
+		const el = await renderLibrary();
+		for (const title of ["old", "read"]) {
+			const c = card(el, title);
+			expect(c.querySelector(".bg-primary\\/60")).toBeNull();
+			expect(c.querySelectorAll(".rounded-full.overflow-hidden")).toHaveLength(
+				title === "read" ? 1 : 0,
+			);
+			expect(c.textContent).toContain("Resume 50%");
+		}
 		el.remove();
 	});
 
@@ -202,11 +243,7 @@ describe("profile-page library sessions", () => {
 			const onShow = (e: Event) =>
 				shown.push((e as CustomEvent<{ text: string }>).detail.text);
 			window.addEventListener("speeedy:show-tooltip", onShow);
-			card(el, "paged")
-				.querySelector(".library-session-piece")
-				?.dispatchEvent(
-					Object.assign(new Event("pointerenter"), { pointerType: "mouse" }),
-				);
+			hoverBand(card(el, "paged"), 0.1);
 			window.removeEventListener("speeedy:show-tooltip", onShow);
 			return shown[0];
 		};

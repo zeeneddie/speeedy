@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../services/defaults.js";
+import { SESSION_TINTS } from "./session-band.js";
 
 // Count how often the word map is built while keeping its real behaviour.
 const { buildWordMapSpy } = vi.hoisted(() => ({ buildWordMapSpy: vi.fn() }));
@@ -245,8 +246,8 @@ describe("rsvp-reader session layer", () => {
 			["2", 50, 10],
 			["2", 75, 25],
 		]);
-		expect(pieces[0].classList.contains("bg-info")).toBe(true);
-		expect(pieces[1].classList.contains("bg-info/45")).toBe(true);
+		expect(pieces[0].className).toContain(SESSION_TINTS[0]);
+		expect(pieces[1].className).toContain(SESSION_TINTS[1]);
 		// Blocks never take pointer events: clicks reach the seek bar.
 		expect(
 			pieces.every((p) => p.className.includes("pointer-events-none")),
@@ -260,7 +261,6 @@ describe("rsvp-reader session layer", () => {
 			docSessions: unknown[];
 			requestUpdate(): void;
 			updateComplete: Promise<boolean>;
-			showSessionTip(e: Partial<PointerEvent>): void;
 		};
 		r.docSessions = [
 			session("2026-11-18T10:00:00Z", [{ start: 0, end: 199 }]),
@@ -276,13 +276,51 @@ describe("rsvp-reader session layer", () => {
 			shown.push((e as CustomEvent<{ text: string }>).detail.text);
 		window.addEventListener("speeedy:show-tooltip", onShow);
 		for (const clientX of [100, 20]) {
-			r.showSessionTip({ currentTarget: band, clientX });
+			band.dispatchEvent(
+				Object.assign(new Event("pointermove"), {
+					pointerType: "mouse",
+					clientX,
+				}),
+			);
 		}
 		window.removeEventListener("speeedy:show-tooltip", onShow);
 		expect(shown.map((t) => t.split(" · ")[0])).toEqual([
 			"Session 2",
 			"Session 1",
 		]);
+		el.remove();
+	});
+
+	it("labels the band with the session count and the share read", async () => {
+		const el = await mount(true);
+		const band = el.querySelector(".session-band");
+		expect(band?.getAttribute("role")).toBe("img");
+		// Read 0–49, 100–119 and 150–199 of 200 words: 120 words, 60%.
+		expect(band?.getAttribute("aria-label")).toBe("2 sessions, 60% read");
+		el.remove();
+	});
+
+	it("shows the band and the seek bar independently of each other", async () => {
+		const el = await mount(true);
+		const r = el as unknown as {
+			settings: Record<string, unknown>;
+			updateComplete: Promise<boolean>;
+		};
+		const seekBar = () =>
+			el.querySelector(".h-full.bg-primary.pointer-events-none");
+		const set = async (
+			showProgress: boolean,
+			progressShowSessions: boolean,
+		) => {
+			r.settings = { ...r.settings, showProgress, progressShowSessions };
+			await r.updateComplete;
+		};
+		await set(false, true);
+		expect(el.querySelector(".session-band")).not.toBeNull();
+		expect(seekBar()).toBeNull();
+		await set(true, false);
+		expect(el.querySelector(".session-band")).toBeNull();
+		expect(seekBar()).not.toBeNull();
 		el.remove();
 	});
 

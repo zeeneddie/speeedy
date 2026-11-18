@@ -25,11 +25,7 @@ import {
 } from "../services/profile-service.js";
 import { buildWordMap, toFilteredIndex } from "../services/reading-progress.js";
 import { tokenize } from "../services/rsvp-engine.js";
-import {
-	type SessionPiece,
-	type SessionView,
-	sessionView,
-} from "../services/session-view.js";
+import { type SessionView, sessionView } from "../services/session-view.js";
 import {
 	formatDuration,
 	formatNumber,
@@ -45,6 +41,7 @@ import { trackEvent } from "../utils/analytics.js";
 import { emitProfileUpdated, navigate, showToast } from "../utils/events.js";
 import { icon } from "../utils/icons.js";
 import { stripCitations } from "../utils/text-utils.js";
+import { SESSION_TINTS, SessionTip, sessionBandLabel } from "./session-band.ts";
 import "./share-card.ts";
 import "./ui/dialog.js";
 import "./ui/file-uploader.js";
@@ -82,7 +79,7 @@ export class ProfilePage extends LitElement {
 	private pendingImg: HTMLImageElement | null = null;
 	/** Session view per document id; tokenizing a document is costly, so it is done once per session list. */
 	private sessionViewCache = new Map<string, SessionView & { key: string }>();
-	private sessionTipTimer: ReturnType<typeof setTimeout> | null = null;
+	private sessionTip = new SessionTip();
 	private _dragActive = false;
 	private _dragStartX = 0;
 	private _dragStartY = 0;
@@ -140,7 +137,7 @@ export class ProfilePage extends LitElement {
 
 	override disconnectedCallback(): void {
 		super.disconnectedCallback();
-		this.hideSessionTip();
+		this.sessionTip.hide();
 	}
 
 	private updateProfile(partial: Partial<UserProfile>): void {
@@ -726,52 +723,49 @@ export class ProfilePage extends LitElement {
 		return view;
 	}
 
-	private showSessionTip(text: string, target: HTMLElement): void {
-		window.dispatchEvent(
-			new CustomEvent("speeedy:show-tooltip", { detail: { text, target } }),
-		);
-	}
-
-	private hideSessionTip(): void {
-		if (this.sessionTipTimer) clearTimeout(this.sessionTipTimer);
-		this.sessionTipTimer = null;
-		window.dispatchEvent(new CustomEvent("speeedy:hide-tooltip"));
-	}
-
-	/** Same blocks as the reader's session layer; hover (or a tap on touch screens) shows the session line. */
-	private renderSessionBand(pieces: SessionPiece[], lines: string[]) {
+	/**
+	 * Same blocks as the reader's session layer; hover (or a tap on touch screens)
+	 * shows the session line above the card, so it covers no title.
+	 */
+	private renderSessionBand(view: SessionView) {
+		const { pieces, lines } = view;
+		const show = (e: PointerEvent) =>
+			this.sessionTip.showAt(
+				e,
+				pieces,
+				lines,
+				(e.currentTarget as HTMLElement).closest<HTMLElement>(
+					".library-doc-card",
+				),
+			);
 		return html`
-			<div class="library-session-band relative w-full max-w-[200px] h-1.5 bg-base-200 rounded-full mt-2 overflow-hidden">
-				${pieces.map(
-					(p) =>
-						html`<div
-							class="library-session-piece absolute top-0 bottom-0 ${p.tint === 0 ? "bg-info" : "bg-info/45"}"
-							data-session=${p.sessionIndex}
-							style="left: ${p.startFrac * 100}%; width: ${(p.endFrac - p.startFrac) * 100}%; min-width: 2px;"
-							@pointerenter=${(e: PointerEvent) => {
-								if (e.pointerType === "mouse")
-									this.showSessionTip(
-										lines[p.sessionIndex - 1],
-										e.currentTarget as HTMLElement,
-									);
-							}}
-							@pointerleave=${(e: PointerEvent) => {
-								if (e.pointerType === "mouse") this.hideSessionTip();
-							}}
-							@pointerdown=${(e: PointerEvent) => {
-								if (e.pointerType === "mouse") return;
-								this.showSessionTip(
-									lines[p.sessionIndex - 1],
-									e.currentTarget as HTMLElement,
-								);
-								if (this.sessionTipTimer) clearTimeout(this.sessionTipTimer);
-								this.sessionTipTimer = setTimeout(
-									() => this.hideSessionTip(),
-									3000,
-								);
-							}}
-						></div>`,
-				)}
+			<div
+				class="library-session-band relative w-full max-w-[200px] mt-2"
+				role="img"
+				aria-label=${sessionBandLabel(view.summary)}
+				@pointermove=${(e: PointerEvent) => {
+					if (e.pointerType === "mouse") show(e);
+				}}
+				@pointerleave=${(e: PointerEvent) => {
+					if (e.pointerType === "mouse") this.sessionTip.hide();
+				}}
+				@pointerdown=${(e: PointerEvent) => {
+					if (e.pointerType !== "mouse") show(e);
+				}}
+			>
+				<!-- Invisible 24px touch target centred on the 6px band. -->
+				<div class="library-session-hit absolute inset-x-0 -top-[9px] h-6"></div>
+				<div class="relative h-1.5 bg-base-200 rounded-full overflow-hidden pointer-events-none">
+					${pieces.map(
+						(p, i) =>
+							html`<div
+								class="library-session-piece absolute top-0 bottom-0 ${SESSION_TINTS[p.tint]}"
+								data-piece=${i}
+								data-session=${p.sessionIndex}
+								style="left: ${p.startFrac * 100}%; width: ${(p.endFrac - p.startFrac) * 100}%; min-width: 2px;"
+							></div>`,
+					)}
+				</div>
 			</div>
 		`;
 	}
@@ -805,7 +799,7 @@ export class ProfilePage extends LitElement {
 		});
 
 		return html`
-      <div class="flex items-center gap-3 px-4 py-3 rounded-xl border border-base-200 bg-base-100 hover:border-primary/30 transition-colors group">
+      <div class="library-doc-card flex items-center gap-3 px-4 py-3 rounded-xl border border-base-200 bg-base-100 hover:border-primary/30 transition-colors group">
         <div class="flex-1 min-w-0">
           <div class="text-ui-body font-semibold text-base-content truncate pr-4">${doc.title}</div>
           <div class="flex items-center gap-2 mt-1">
@@ -815,19 +809,10 @@ export class ProfilePage extends LitElement {
           ${
 						view
 							? html`
-            ${this.renderSessionBand(view.pieces, view.lines)}
+            ${this.renderSessionBand(view)}
             <div class="library-session-meta flex items-center gap-2 mt-1">
               <span class="text-ui-body text-ui-muted">${view.summary.sessionCount === 1 ? "1 session" : `${view.summary.sessionCount} sessions`}</span>
               ${view.summary.fullyRead ? html`<span class="badge badge-sm badge-success badge-soft">Fully read</span>` : ""}
-            </div>
-          `
-							: ""
-					}
-          ${
-						pct > 0 && pct < 98
-							? html`
-            <div class="w-full max-w-[200px] h-1 bg-base-200 rounded-full mt-2 overflow-hidden">
-              <div class="h-full bg-primary/60 rounded-full" style="width: ${pct}%"></div>
             </div>
           `
 							: ""

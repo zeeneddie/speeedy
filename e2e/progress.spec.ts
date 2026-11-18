@@ -314,7 +314,7 @@ test.describe("Progress (phase 1): sessions in the library", () => {
 		await page
 			.locator('.library-session-piece[data-session="2"]')
 			.first()
-			.hover();
+			.hover({ force: true }); // the blocks sit under an invisible touch target
 		const tip = page.locator("global-tooltip");
 		await expect(tip).toHaveClass(/visible/);
 		await expect(tip).toContainText(/^\s*Session 2 · /);
@@ -331,7 +331,7 @@ test.describe("Progress (phase 1): sessions in the library", () => {
 			await page
 				.locator('.library-session-piece[data-session="2"]')
 				.first()
-				.hover();
+				.hover({ force: true });
 			await expect(tip).toHaveClass(/visible/);
 			await page.waitForTimeout(300);
 			await page.screenshot({ path: shot.replace(/\.png$/, "-dark.png") });
