@@ -59,6 +59,11 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
 	removeCitations: false,
 	tickerMode: false,
 	maxImportBytes: 500 * 1024 * 1024,
+	originalEnabled: true,
+	originalStore: true,
+	originalFollow: true,
+	originalHighlight: "word",
+	originalClickToResume: true,
 };
 
 export const AVATAR_EMOJIS = [

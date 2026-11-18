@@ -297,6 +297,20 @@ export async function saveDocument(
 	return saved;
 }
 
+/** One library document by id, or null when it does not exist (or cannot be read). */
+export async function getSavedDocument(
+	id: string,
+): Promise<SavedDocument | null> {
+	try {
+		const db = await getDb();
+		const doc = await db.get(DOCS_STORE, id);
+		return isValidSavedDocument(doc) ? doc : null;
+	} catch (err) {
+		console.error("[speeedy] Failed to load document:", err);
+		return null;
+	}
+}
+
 /** The stored original file of a document, or null when there is none. */
 export async function getOriginal(docId: string): Promise<Blob | null> {
 	try {

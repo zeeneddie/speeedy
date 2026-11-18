@@ -212,7 +212,10 @@ export class AppPage extends LitElement {
 				resumeWordIndex: safeStart,
 				completionPercent,
 				pages: extras?.pages,
-				originalFile: extras?.originalFile,
+				originalFile:
+					(this.profile?.settings.originalStore ?? true)
+						? extras?.originalFile
+						: undefined,
 			});
 		} catch (err) {
 			console.error("[speeedy] Failed to save document:", err);
@@ -221,7 +224,11 @@ export class AppPage extends LitElement {
 			showToast(this.error, "error");
 			return;
 		}
-		if (extras?.originalFile && !saved.original) {
+		if (
+			extras?.originalFile &&
+			(this.profile?.settings.originalStore ?? true) &&
+			!saved.original
+		) {
 			showToast(
 				"Saved without the original file: not enough storage space.",
 				"info",

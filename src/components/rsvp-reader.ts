@@ -8,9 +8,12 @@ import type {
 } from "../models/types.js";
 import { audioService } from "../services/audio-service.js";
 import { DEFAULT_SETTINGS } from "../services/defaults.js";
+import { computePageStarts } from "../services/page-map.js";
 import { type PlaybackState, RSVPEngine } from "../services/rsvp-engine.js";
 import { recordSession } from "../services/stats-service.js";
 import {
+	getOriginal,
+	getSavedDocument,
 	getSavedDocuments,
 	saveDocument,
 	updateDocumentProgress,
@@ -20,6 +23,7 @@ import { applyTheme } from "../services/theme-service.js";
 import { trackEvent, wpmBracket } from "../utils/analytics.js";
 import { emitProfileUpdated, navigate, showToast } from "../utils/events.js";
 import { stripCitations } from "../utils/text-utils.js";
+import type { OriginalWordClickDetail } from "./original-pdf-viewer.ts";
 import "./settings-panel.ts";
 import "./wellness-overlay.ts";
 
@@ -48,6 +52,16 @@ export class RsvpReader extends LitElement {
 	@state() private isProgressHovered = false;
 	@state() private isSeeking = false;
 	@state() private seekWordIndex: number | null = null;
+	/** Which view of the document is shown: the word-by-word reader or the original file. */
+	@state() private readerTab: "read" | "original" = "read";
+	/** Page texts and original file of the current document; `available` = an original is stored. */
+	@state() private docOriginal: {
+		pages: string[] | null;
+		blob: Blob | null;
+		available: boolean;
+	} = { pages: null, blob: null, available: false };
+	private pageStartsCache: { key: string; starts: number[] | null } | null =
+		null;
 	private wasPlayingBeforeSeek = false;
 	private countdownTimer: ReturnType<typeof setTimeout> | null = null;
 	private seekingPointerId: number | null = null;
@@ -96,7 +110,13 @@ export class RsvpReader extends LitElement {
 				this.engine.stop();
 				break;
 			case "Escape":
-				void this.handleBack();
+				if (this.readerTab === "original") this.readerTab = "read";
+				else void this.handleBack();
+				break;
+			case "o":
+			case "O":
+				if (this.readerTab === "original") this.readerTab = "read";
+				else void this.showOriginal();
 				break;
 			case "?":
 				this.showShortcuts = !this.showShortcuts;
@@ -328,12 +348,108 @@ export class RsvpReader extends LitElement {
 		shifter.style.transform = `translateX(${this._rtlPivotOffset}px)`;
 	}
 
+	/** Looks up whether the current document has a stored original and page texts. */
+	private async loadOriginalInfo(): Promise<void> {
+		const id = this.savedDocId;
+		this.readerTab = "read";
+		this.docOriginal = { pages: null, blob: null, available: false };
+		this.pageStartsCache = null;
+		if (!id) return;
+		const doc = await getSavedDocument(id);
+		if (!doc || this.savedDocId !== id) return;
+		this.docOriginal = {
+			pages: doc.pages ?? null,
+			blob: null,
+			available: Boolean(doc.original),
+		};
+	}
+
+	/** Word index at which each page starts, for the text as the reader plays it (citation filter included). */
+	private get pageStarts(): number[] | null {
+		const pages = this.docOriginal.pages;
+		if (!pages) return null;
+		const key = `${this.savedDocId}|${this.settings.removeCitations}`;
+		if (this.pageStartsCache?.key !== key) {
+			this.pageStartsCache = {
+				key,
+				starts: computePageStarts(
+					pages,
+					this.rawDocText,
+					this.settings.removeCitations ? stripCitations : undefined,
+					this.settings,
+				),
+			};
+		}
+		return this.pageStartsCache.starts;
+	}
+
+	/** Switches to the original; pauses reading first (decision 2026-11-18). */
+	private async showOriginal(): Promise<void> {
+		const id = this.savedDocId;
+		if (!this.settings.originalEnabled || !this.docOriginal.available || !id)
+			return;
+		const state = this.engine.getState();
+		if (state.playing || this.isCountingDown) this.togglePlay();
+		if (!this.docOriginal.blob) {
+			const [blob] = await Promise.all([
+				getOriginal(id),
+				import("./original-pdf-viewer.ts"),
+			]);
+			if (this.savedDocId !== id) return;
+			if (!blob) {
+				showToast("The original file could not be loaded.", "error");
+				return;
+			}
+			this.docOriginal = { ...this.docOriginal, blob };
+		}
+		this.readerTab = "original";
+	}
+
+	private onOriginalWordClick = (
+		e: CustomEvent<OriginalWordClickDetail>,
+	): void => {
+		this.engine.seekToWord(e.detail.wordIndex);
+		void this.persistProgress(this.engine.getState());
+		this.readerTab = "read";
+		this.requestUpdate();
+	};
+
+	private renderReaderTabs() {
+		if (!this.settings.originalEnabled) return nothing;
+		const available = this.docOriginal.available;
+		const tab = (active: boolean) =>
+			`btn btn-sm min-h-[36px] ${active ? "btn-active" : "btn-ghost"}`;
+		return html`
+			<div class="join shrink-0" role="tablist" aria-label="Document view">
+				<button
+					type="button"
+					role="tab"
+					class="join-item ${tab(this.readerTab === "read")}"
+					aria-selected=${this.readerTab === "read"}
+					@click=${() => {
+						this.readerTab = "read";
+					}}
+				>Read</button>
+				<button
+					type="button"
+					role="tab"
+					class="join-item ${tab(this.readerTab === "original")}"
+					aria-selected=${this.readerTab === "original"}
+					?disabled=${!available}
+					title=${available ? "Show the original (O)" : "Import the file again to see the original"}
+					@click=${() => void this.showOriginal()}
+				>Original</button>
+			</div>
+		`;
+	}
+
 	private static readonly RESUME_LOOKBACK_WORDS = 12;
 
 	private loadDoc(doc: ParsedDocument): void {
 		this.docTitle = doc.title;
 		this.totalDocWords = doc.wordCount;
 		this.rawDocText = doc.text;
+		void this.loadOriginalInfo();
 		const textToLoad = this.settings.removeCitations
 			? stripCitations(doc.text)
 			: doc.text;
@@ -650,6 +766,7 @@ export class RsvpReader extends LitElement {
 							</svg>
 						</button>
 							<span class="text-xs md:text-sm text-base-content/70 truncate font-light tracking-wide">${this.docTitle || "No document"}</span>
+							${this.renderReaderTabs()}
 						</div>
 						<div class="flex items-center gap-1 md:gap-2 shrink-0 relative z-50">
 							<span class="text-xs md:text-sm text-base-content/55 font-mono hidden md:block mr-2">
@@ -705,7 +822,9 @@ export class RsvpReader extends LitElement {
 
 				<!-- Progress / Seek bar -->
 				${
-					!focusModeActive && this.settings.showProgress
+					!focusModeActive &&
+					this.settings.showProgress &&
+					this.readerTab === "read"
 						? html`
 					<div
 						class="w-full shrink-0 cursor-pointer select-none relative"
@@ -741,8 +860,28 @@ export class RsvpReader extends LitElement {
 						: ""
 				}
 
+					${
+						this.readerTab === "original"
+							? html`
+					<div class="flex-1 min-h-0 flex">
+						<original-pdf-viewer
+							class="flex-1 min-w-0"
+							.original=${this.docOriginal.blob}
+							.pageStarts=${this.pageStarts}
+							.tokens=${this.engine.tokens.map((t) => t.text)}
+							.currentWord=${s?.wordIndex ?? 0}
+							.follow=${this.settings.originalFollow}
+							.highlight=${this.settings.originalHighlight}
+							.clickToResume=${this.settings.originalClickToResume}
+							@original-word-click=${this.onOriginalWordClick}
+						></original-pdf-viewer>
+					</div>
+					`
+							: nothing
+					}
 					<!-- Word Display Area -->
 					<div
+						style=${this.readerTab === "original" ? "display: none" : ""}
 						class="flex-1 flex flex-col items-center justify-center cursor-pointer select-none overflow-hidden relative"
 						@click=${this.togglePlay}
 					>
@@ -761,7 +900,7 @@ export class RsvpReader extends LitElement {
 
 					<!-- Bottom Controls -->
 					${
-						focusModeActive
+						focusModeActive || this.readerTab === "original"
 							? nothing
 							: html`
 					<div class="border-t border-base-200 px-4 md:px-6 py-4 md:py-5 shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))] relative z-30">
@@ -1370,6 +1509,7 @@ export class RsvpReader extends LitElement {
 			["←  →", "Speed −/+ 25 WPM"],
 			["↑  ↓", "Back / Forward 5 words"],
 			["R", "Restart from beginning"],
+			["O", "Show / hide the original (stored PDFs)"],
 			["Esc", "Back to home"],
 			["?", "Toggle this overlay"],
 		];

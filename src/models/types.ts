@@ -110,6 +110,16 @@ export interface ReaderSettings {
 	tickerMode: boolean;
 	/** Largest file (bytes) accepted for import. Guards against the browser running out of memory. */
 	maxImportBytes: number;
+	/** Show the "Original" tab next to the reader for documents whose original file is stored. */
+	originalEnabled: boolean;
+	/** Keep the original file when importing (needed for the "Original" tab). */
+	originalStore: boolean;
+	/** The original scrolls to the page of the current word when it opens or the word changes. */
+	originalFollow: boolean;
+	/** What the original marks: the current word, only its page, or nothing. */
+	originalHighlight: "word" | "page" | "off";
+	/** Clicking a word in the original continues reading from that word. */
+	originalClickToResume: boolean;
 }
 
 export interface ReadingSession {

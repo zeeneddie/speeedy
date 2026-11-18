@@ -401,6 +401,55 @@ export class SettingsPanel extends LitElement {
           </div>
         </section>
 
+        <!-- Original document -->
+        <section class="border-t border-base-200 pt-6 pb-2" aria-labelledby="settings-original-heading">
+          <h2 id="settings-original-heading" class="text-xs uppercase tracking-widest text-ui-muted font-medium mb-4">Original</h2>
+          <div class="flex flex-col gap-3">
+            <speeedy-toggle
+              label="Show the Original tab"
+              ?checked=${s.originalEnabled ?? true}
+              tip="For imported PDFs, show the document as it looks next to the reader. Switch with O."
+              @change=${(e: CustomEvent) => this.emit({ originalEnabled: e.detail.value })}
+            ></speeedy-toggle>
+            <speeedy-toggle
+              label="Keep the original file when importing"
+              ?checked=${s.originalStore ?? true}
+              tip="Stored only in this browser. Without it, the Original tab is not available for new imports."
+              @change=${(e: CustomEvent) => this.emit({ originalStore: e.detail.value })}
+            ></speeedy-toggle>
+            <speeedy-toggle
+              label="Follow my reading position"
+              ?checked=${s.originalFollow ?? true}
+              @change=${(e: CustomEvent) => this.emit({ originalFollow: e.detail.value })}
+            ></speeedy-toggle>
+            <speeedy-toggle
+              label="Click a word to continue reading there"
+              ?checked=${s.originalClickToResume ?? true}
+              @change=${(e: CustomEvent) => this.emit({ originalClickToResume: e.detail.value })}
+            ></speeedy-toggle>
+            <div>
+              <span class="text-sm text-base-content block mb-2">Highlight in the original</span>
+              <speeedy-segmented
+                .options=${[
+									{ value: "word", label: "Word" },
+									{ value: "page", label: "Page" },
+									{ value: "off", label: "Off" },
+								]}
+                .value=${s.originalHighlight ?? "word"}
+                @change=${(e: CustomEvent) => this.emit({ originalHighlight: e.detail.value })}
+              ></speeedy-segmented>
+            </div>
+            <div>
+              <span class="text-sm text-base-content block mb-2">Largest file to import</span>
+              <speeedy-segmented
+                .options=${[100, 250, 500, 1000].map((mb) => ({ value: String(mb), label: `${mb} MB` }))}
+                .value=${String(Math.round((s.maxImportBytes ?? 500 * 1024 * 1024) / 1024 / 1024))}
+                @change=${(e: CustomEvent) => this.emit({ maxImportBytes: Number(e.detail.value) * 1024 * 1024 })}
+              ></speeedy-segmented>
+            </div>
+          </div>
+        </section>
+
         <!-- Reading features -->
         <section class="border-t border-base-200 pt-6 pb-2">
           <h2 class="text-xs uppercase tracking-widest text-ui-muted font-medium mb-4">Reading features</h2>

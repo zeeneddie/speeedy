@@ -82,6 +82,7 @@ export class ProfilePage extends LitElement {
 		e: CustomEvent<{ doc: ParsedDocument }>,
 	): Promise<void> => {
 		const doc = e.detail.doc;
+		const storeOriginal = this.profile?.settings.originalStore ?? true;
 		const saved = await saveDocument({
 			title: doc.title,
 			text: doc.text,
@@ -89,9 +90,9 @@ export class ProfilePage extends LitElement {
 			resumeWordIndex: 0,
 			completionPercent: 0,
 			pages: doc.pages,
-			originalFile: doc.originalFile,
+			originalFile: storeOriginal ? doc.originalFile : undefined,
 		});
-		if (doc.originalFile && !saved.original) {
+		if (storeOriginal && doc.originalFile && !saved.original) {
 			showToast(
 				"Saved without the original file: not enough storage space.",
 				"info",
