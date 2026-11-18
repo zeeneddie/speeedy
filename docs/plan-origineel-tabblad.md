@@ -14,7 +14,8 @@ Het origineel **loopt mee**: het staat op de pagina die je aan het lezen bent, m
 de opzet laat ruimte voor EPUB en Word later.
 
 Besluiten Eddie 2026-11-18: tab binnen speeedy · meelopen · terugspringen door te klikken · eerst pdf, ruimte
-voor uitbreiding.
+voor uitbreiding · overschakelen pauzeert het lezen · zowel tabbladen als een gesplitst scherm moeten mogelijk zijn ·
+geen vaste grens van 50 MB meer, wel een controle op opslagruimte en een instelbare bovengrens (standaard 500 MB).
 
 ## Hoe speeedy het nu doet
 
@@ -45,6 +46,11 @@ store aan, bestaande documenten blijven ongemoeid.
   het origineel mee.
 - Opslag: vragen om blijvende opslag (`navigator.storage.persist()`) en vooraf controleren of er ruimte is
   (`navigator.storage.estimate()`). Past het niet, dan wordt het document zonder origineel bewaard, met een melding.
+- **Bestandsgrootte** (besluit Eddie 2026-11-18): de vaste grens van 50 MB in `file-uploader.ts:36` vervalt. In
+  de plaats komt de instelling `maxImportBytes`, standaard 500 MB, als bescherming tegen vastlopen van de browser
+  (het bestand staat bij het inlezen in zijn geheel in het werkgeheugen). Boven de grens: een melding met de
+  grootte en de ingestelde grens, zoals nu. Op telefoons kan het geheugen eerder op zijn dan de grens; dan volgt
+  een nette foutmelding in plaats van een vastgelopen tab.
 - Ontdubbelen blijft op de tekst (`contentHash`), zoals nu.
 
 **Paginagrenzen.** `parsePdf` doorloopt de pagina's al één voor één. In plaats van alles samen te voegen,
@@ -71,7 +77,8 @@ interface OriginalRef {
 **Oude documenten** hebben geen origineel. Het tabblad staat dan uitgegrijsd met de uitleg "Importeer het
 bestand opnieuw om het origineel te zien".
 
-**Tests**: bestand wordt bewaard en weer opgehaald; verwijderen ruimt het origineel op; de som van de woorden
+**Tests**: bestand boven `maxImportBytes` geeft de melding, eronder niet; te weinig opslagruimte → tekst bewaard,
+origineel niet, met melding; bestand wordt bewaard en weer opgehaald; verwijderen ruimt het origineel op; de som van de woorden
 per pagina klopt voor de test-pdf in `test-fixtures/`, met en zonder `removeCitations`; database-upgrade van
 versie 2 naar 3 houdt bestaande documenten intact.
 
@@ -116,7 +123,26 @@ staat. De voortgang wordt opgeslagen zoals nu (`persistProgress`).
 **Tests**: koppeling op de test-pdf (aantal gekoppelde woorden, nul verkeerde op een steekproef); klik op een
 woord landt op hetzelfde woord in de lezer; woorden zonder koppeling geven alleen de paginamarkering.
 
-## Fase 3 — Ruimte voor andere formaten
+## Fase 3 — Gesplitst scherm
+
+Naast de tabbladen een tweede weergave: snellezen en origineel **naast elkaar** (`originalLayout = "split"`).
+
+- Het origineel loopt dan **tijdens het lezen** mee: de pagina en het gemarkeerde woord volgen de lezer. Om het
+  oog niet af te leiden, schuift de weergave per alinea of per pagina op, niet per woord (instelling, standaard
+  per alinea).
+- Klikken op een woord in het origineel pauzeert, springt naar dat woord en gaat verder na de aftelling.
+- Verdeling instelbaar met een sleepbare scheidslijn; op smalle schermen (telefoon) staat het origineel onder
+  het woord, of valt de weergave terug op tabbladen.
+- Wisselen tussen tabbladen en gesplitst scherm met een knop in de lezer; `O` blijft in beide het origineel
+  tonen of verbergen.
+- Prestaties: meelopen tijdens het lezen mag het tempo van de lezer niet storen. Het origineel wordt bijgewerkt
+  buiten de woordtimer om (`requestAnimationFrame`), en alleen als de pagina of alinea verandert.
+
+**Tests**: bij gesplitst scherm loopt het origineel mee zonder dat de woordtiming verschuift (gemeten tegen de
+lezer zonder origineel); klik in het origineel landt op het juiste woord; op een smal scherm valt de weergave
+netjes terug.
+
+## Fase 4 — Ruimte voor andere formaten
 
 Het tabblad praat met het origineel via één vaste koppeling, zodat EPUB en Word later alleen een eigen
 weergave nodig hebben:
@@ -143,10 +169,13 @@ vanzelf (de lezer voegt standaardwaarden samen, `rsvp-reader.ts:169`).
 | Sleutel | Standaard | Betekenis |
 |---|---|---|
 | `originalEnabled` | `true` | tabblad *Origineel* tonen |
+| `maxImportBytes` | `524288000` (500 MB) | grootste bestand dat geïmporteerd mag worden; vervangt de vaste 50 MB |
 | `originalStore` | `true` | het originele bestand bewaren bij importeren |
 | `originalFollow` | `true` | meelopen naar de huidige pagina |
 | `originalHighlight` | `"word"` | `"word"` · `"page"` · `"off"` |
 | `originalClickToResume` | `true` | klik op een woord = daar verder lezen |
+| `originalLayout` | `"tabs"` | `"tabs"` (wisselen met `O`) · `"split"` (naast elkaar) |
+| `originalSplitSide` | `"right"` | bij gesplitst scherm: origineel rechts of links (op smalle schermen onder) |
 
 ## Volgorde en omvang (schatting)
 
@@ -155,7 +184,8 @@ vanzelf (de lezer voegt standaardwaarden samen, `rsvp-reader.ts:169`).
 | 0 | origineel bewaren + paginagrenzen + tests | 1 dag |
 | 1 | tabblad, pdf-weergave, meelopen per pagina, lokaal geserveerde pdf.js-bestanden | 1–1,5 dag |
 | 2 | woordkoppeling, markeren, klikken om verder te lezen | 1,5–2 dagen |
-| 3 | vaste koppeling voor andere formaten, opruimen | ½ dag |
+| 3 | gesplitst scherm | 1–1,5 dag |
+| 4 | vaste koppeling voor andere formaten, opruimen | ½ dag |
 
 Elke fase is één PR op `zeeneddie/speeedy`, met unit-tests en een browsertest. Fase 0 is gedeeld met
 `plan-leesinformatie.md`; wie eerst gebouwd wordt, legt het fundament.
@@ -169,7 +199,4 @@ Elke fase is één PR op `zeeneddie/speeedy`, met unit-tests en een browsertest.
 
 ## Open punten voor Eddie
 
-1. Grote bestanden: tot 50 MB mag nu geüpload worden. Het origineel ook tot 50 MB bewaren, of een lagere grens
-   (bijvoorbeeld 25 MB) om de opslag van de browser niet vol te zetten?
-2. Overschakelen naar *Origineel* pauzeert het lezen. Akkoord?
-3. Later ook een gesplitst scherm (snellezen en origineel naast elkaar), of alleen tabbladen?
+Geen. Alle vragen zijn beantwoord (besluiten 2026-11-18, zie boven).
