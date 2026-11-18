@@ -16,15 +16,26 @@ import {
 	resolveMarks,
 } from "../services/marks.js";
 import { computePageStarts, pageForWord } from "../services/page-map.js";
-import { type PlaybackState, RSVPEngine } from "../services/rsvp-engine.js";
+import {
+	buildWordMap,
+	SessionRecorder,
+	toPlainIndex,
+} from "../services/reading-progress.js";
+import {
+	type PlaybackState,
+	RSVPEngine,
+	tokenize,
+} from "../services/rsvp-engine.js";
 import { recordSession } from "../services/stats-service.js";
 import {
+	appendDocumentSession,
 	getOriginal,
 	getSavedDocument,
 	getSavedDocuments,
 	saveDocument,
 	updateDocumentMarks,
 	updateDocumentProgress,
+	updateDocumentToc,
 } from "../services/storage-service.js";
 import { applyBionicReading } from "../services/text-parser.js";
 import { applyTheme } from "../services/theme-service.js";
@@ -78,6 +89,8 @@ export class RsvpReader extends LitElement {
 	/** Word the original should scroll to (from the marks list), without moving the reading position. */
 	@state() private originalFocusWord: number | null = null;
 	private markFlashTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Records which stretches of the current document are actually read (no jumps). */
+	private sessionRecorder = new SessionRecorder();
 	private resolvedMarksCache: {
 		marks: Mark[];
 		key: string;
@@ -185,6 +198,7 @@ export class RsvpReader extends LitElement {
 		const wordCount = text.split(/\s+/).filter(Boolean).length;
 		if (wordCount === 0) return;
 
+		this.saveDocSession();
 		const saved = await saveDocument({
 			title: "Pasted Text",
 			text,
@@ -221,6 +235,11 @@ export class RsvpReader extends LitElement {
 		this.engine.on("word", (s) => {
 			this.playbackState = s;
 			if (s.playing) {
+				this.sessionRecorder.onWords(
+					s.displayWordIndex,
+					s.currentTokens.length,
+					Date.now(),
+				);
 				const w = s.currentTokens[0]?.text ?? "";
 				if (this.settings.clickSoundEnabled) {
 					const type = /[.!?]$/.test(w)
@@ -237,6 +256,7 @@ export class RsvpReader extends LitElement {
 		});
 		this.engine.on("stateChange", (s) => {
 			this.playbackState = s;
+			if (!s.playing) this.sessionRecorder.pause();
 		});
 		this.engine.on("complete", (s) => {
 			this.playbackState = s;
@@ -290,6 +310,7 @@ export class RsvpReader extends LitElement {
 	override disconnectedCallback(): void {
 		super.disconnectedCallback();
 		this._stopAutoSave();
+		this.saveDocSession();
 		void this.persistProgress(this.engine.getState());
 		this.engine.stop();
 		audioService.stopAmbientNoise();
@@ -389,11 +410,32 @@ export class RsvpReader extends LitElement {
 		const doc = await getSavedDocument(id);
 		if (!doc || this.savedDocId !== id) return;
 		this.marks = doc.marks ?? [];
+		// PDFs imported before tables of contents were kept: read it once from the stored original.
+		if (doc.original?.kind === "pdf" && doc.toc === undefined && doc.pages) {
+			void this.backfillPdfToc(id, doc.pages, doc.text);
+		}
 		this.docOriginal = {
 			pages: doc.pages ?? null,
 			blob: null,
 			available: Boolean(doc.original),
 		};
+	}
+
+	private async backfillPdfToc(
+		id: string,
+		pages: string[],
+		text: string,
+	): Promise<void> {
+		try {
+			const blob = await getOriginal(id);
+			if (!blob) return;
+			const { readPdfTocFromBlob } = await import(
+				"../services/pdf-toc-loader.js"
+			);
+			await updateDocumentToc(id, await readPdfTocFromBlob(blob, pages, text));
+		} catch (err) {
+			console.warn("[speeedy] Could not read the table of contents:", err);
+		}
 	}
 
 	/** Word index at which each page starts, for the text as the reader plays it (citation filter included). */
@@ -708,6 +750,8 @@ export class RsvpReader extends LitElement {
 		const newSettings = e.detail as ReaderSettings;
 		const citationsToggled =
 			newSettings.removeCitations !== this.settings.removeCitations;
+		// Word numbers change with the filter: close the stretches read so far under the old numbering.
+		if (citationsToggled) this.saveDocSession();
 		this.settings = newSettings;
 		this.engine.setWpm(newSettings);
 		applyTheme(newSettings.theme);
@@ -731,7 +775,26 @@ export class RsvpReader extends LitElement {
 		emitProfileUpdated(updatedProfile);
 	}
 
+	/** Plain (citation filter off) word index for a word of the stream the reader plays now. */
+	private toPlainMapper(): (index: number) => number {
+		if (!this.settings.removeCitations || !this.rawDocText) return (i) => i;
+		const map = buildWordMap(
+			tokenize(this.rawDocText).map((t) => t.text),
+			this.engine.tokens.map((t) => t.text),
+		);
+		return (i) => toPlainIndex(map, i);
+	}
+
+	/** Stores the stretches read so far as a session of the current document. */
+	private saveDocSession(): void {
+		const docSession = this.sessionRecorder.finish(this.toPlainMapper());
+		if (docSession && this.savedDocId) {
+			void appendDocumentSession(this.savedDocId, docSession);
+		}
+	}
+
 	private saveSession(state: PlaybackState): void {
+		this.saveDocSession();
 		if (!this.sessionStartTime) return;
 		const durationMs = Date.now() - this.sessionStartTime;
 		const wordsRead = state.wordIndex - this.wordsAtSessionStart;
@@ -744,6 +807,7 @@ export class RsvpReader extends LitElement {
 
 		const updatedProfile = recordSession(this.profile, {
 			date: new Date().toISOString(),
+			docId: this.savedDocId ?? undefined,
 			sourceTitle: this.docTitle,
 			wordCount: this.totalDocWords,
 			wordsRead,
@@ -762,6 +826,8 @@ export class RsvpReader extends LitElement {
 		if (state.playing) {
 			this.engine.pause();
 			this.saveSession(state);
+		} else {
+			this.saveDocSession();
 		}
 		this._stopAutoSave();
 		// Await the DB write so the library page always reads the correct position.
@@ -797,6 +863,7 @@ export class RsvpReader extends LitElement {
 	}
 
 	private handleUnload = (): void => {
+		this.saveDocSession();
 		this.persistProgress(this.engine.getState());
 	};
 

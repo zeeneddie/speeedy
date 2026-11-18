@@ -90,6 +90,7 @@ export class ProfilePage extends LitElement {
 			resumeWordIndex: 0,
 			completionPercent: 0,
 			pages: doc.pages,
+			toc: doc.toc,
 			originalFile: storeOriginal ? doc.originalFile : undefined,
 		});
 		if (storeOriginal && doc.originalFile && !saved.original) {

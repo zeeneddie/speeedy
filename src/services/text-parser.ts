@@ -1,6 +1,17 @@
 import type JSZip from "jszip";
-import type { ParsedDocument } from "../models/types.js";
+import type { ParsedDocument, TocEntry } from "../models/types.js";
 import { countWords, htmlToPlainText } from "../utils/text-utils.js";
+import { computePageStarts } from "./page-map.js";
+import { normalizeForMatch } from "./pdf-word-geometry.js";
+import { tokenize } from "./rsvp-engine.js";
+import {
+	markdownSegments,
+	type PdfOutlineSource,
+	pdfToc,
+	refineStart,
+	type TextSegment,
+	tocFromSegments,
+} from "./toc.js";
 
 type JSZipStatic = typeof JSZip;
 
@@ -120,10 +131,15 @@ export async function parseFile(file: File): Promise<ParsedDocument> {
 
 async function parsePlainText(file: File): Promise<ParsedDocument> {
 	const text = await file.text();
+	const cleaned = cleanText(text);
+	const isMarkdown = /\.md$/i.test(file.name);
 	return {
 		title: file.name.replace(/\.[^.]+$/, ""),
-		text: cleanText(text),
+		text: cleaned,
 		wordCount: countWords(text),
+		...(isMarkdown
+			? { toc: tocFromSegments(markdownSegments(cleaned), cleaned) }
+			: {}),
 	};
 }
 
@@ -179,11 +195,14 @@ async function parsePdf(file: File): Promise<ParsedDocument> {
 	}
 
 	const text = cleanText(pageParts.join("\n\n"));
+	const pages = pageParts.map(cleanText);
+	const toc = await pdfToc(pdf as unknown as PdfOutlineSource, pages, text);
 	return {
 		title: file.name.replace(/\.pdf$/i, ""),
 		text,
 		wordCount: countWords(text),
-		pages: pageParts.map(cleanText),
+		pages,
+		toc,
 		// Some systems report an empty MIME type; the extension already said PDF.
 		originalFile:
 			file.type === "application/pdf"
@@ -195,13 +214,47 @@ async function parsePdf(file: File): Promise<ParsedDocument> {
 async function parseDocx(file: File): Promise<ParsedDocument> {
 	const mammoth = await import("mammoth");
 	const arrayBuffer = await file.arrayBuffer();
-	const result = await mammoth.extractRawText({ arrayBuffer });
-	const text = cleanText(result.value);
-	return {
-		title: file.name.replace(/\.docx$/i, ""),
-		text,
-		wordCount: countWords(text),
-	};
+	const title = file.name.replace(/\.docx$/i, "");
+	// HTML keeps the heading styles (Heading 1, 2, …) as h1, h2, … for the table of contents.
+	const html = (await mammoth.convertToHtml({ arrayBuffer })).value;
+	const segments = htmlSegments(html);
+	const text = cleanText(segments.map((s) => s.text).join("\n\n"));
+	if (text) {
+		return {
+			title,
+			text,
+			wordCount: countWords(text),
+			toc: tocFromSegments(segments, text),
+		};
+	}
+	const raw = cleanText((await mammoth.extractRawText({ arrayBuffer })).value);
+	return { title, text: raw, wordCount: countWords(raw) };
+}
+
+/** Splits HTML into text segments, a new one at every heading (h1–h6). */
+export function htmlSegments(html: string): TextSegment[] {
+	const doc = new DOMParser().parseFromString(html, "text/html");
+	// Private-use characters: survive the HTML-to-text step and never occur in normal text.
+	const marker = (i: number) => `\uE000SEG${i}\uE000`;
+	const headings = Array.from(doc.body.querySelectorAll("h1,h2,h3,h4,h5,h6"));
+	headings.forEach((h, i) => {
+		h.before(doc.createTextNode(marker(i)));
+	});
+	const plain = htmlToPlainText(doc.body.innerHTML);
+	const pieces = plain.split(/\uE000SEG(\d+)\uE000/);
+	const segments: TextSegment[] = [];
+	if (pieces[0].trim()) segments.push({ text: cleanText(pieces[0]) });
+	for (let i = 1; i < pieces.length; i += 2) {
+		const h = headings[Number(pieces[i])];
+		segments.push({
+			text: cleanText(pieces[i + 1] ?? ""),
+			heading: {
+				title: (h.textContent ?? "").replace(/\s+/g, " ").trim(),
+				level: Number(h.tagName[1]),
+			},
+		});
+	}
+	return segments.filter((s) => s.text || s.heading?.title);
 }
 
 async function parseDocLegacy(file: File): Promise<ParsedDocument> {
@@ -360,6 +413,8 @@ async function parseEpub(file: File): Promise<ParsedDocument> {
 		: "";
 
 	const parts: string[] = [];
+	/** Normalized zip path of each part, to place the entries of the table of contents. */
+	const partPaths: string[] = [];
 	for (const idref of spineItems) {
 		const href = stripHrefFragment(manifestMap[idref]);
 		if (!href) continue;
@@ -370,6 +425,7 @@ async function parseEpub(file: File): Promise<ParsedDocument> {
 
 		const html = await entry.async("string");
 		parts.push(htmlToPlainText(html));
+		partPaths.push(normalizeEpubPath(entry.name));
 	}
 
 	if (parts.length === 0) {
@@ -379,8 +435,129 @@ async function parseEpub(file: File): Promise<ParsedDocument> {
 	const text = cleanText(parts.join("\n\n"));
 	const title =
 		extractEpubTitleFromDoc(opfDoc) ?? file.name.replace(/\.(epub|zip)$/i, "");
+	const toc = await epubToc(zip, opfDoc, basePath, parts, partPaths, text);
 
-	return { title, text, wordCount: countWords(text) };
+	return { title, text, wordCount: countWords(text), toc };
+}
+
+interface NavEntry {
+	title: string;
+	href: string;
+	level: number;
+}
+
+/**
+ * Table of contents from the EPUB navigation document (EPUB 3 `nav`) or, failing
+ * that, the NCX (EPUB 2). Each entry starts at the first word of its spine part,
+ * refined to its title words when it points inside a part. [] when absent.
+ */
+async function epubToc(
+	zip: JSZip,
+	opfDoc: Document,
+	basePath: string,
+	parts: string[],
+	partPaths: string[],
+	text: string,
+): Promise<TocEntry[]> {
+	try {
+		const items = getElementsByLocalName(opfDoc, "item");
+		const navItem = items.find((i) =>
+			(i.getAttribute("properties") ?? "").split(/\s+/).includes("nav"),
+		);
+		const ncxItem = items.find(
+			(i) => i.getAttribute("media-type") === "application/x-dtbncx+xml",
+		);
+		const source = navItem ?? ncxItem;
+		const href = source?.getAttribute("href");
+		if (!source || !href) return [];
+		const navPath = normalizeEpubPath(basePath + stripHrefFragment(href));
+		const entry = findZipEntry(zip, navPath);
+		if (!entry) return [];
+		const navDoc = new DOMParser().parseFromString(
+			await entry.async("string"),
+			"application/xhtml+xml",
+		);
+		const entries = navItem ? readNav(navDoc) : readNcx(navDoc);
+		if (entries.length === 0) return [];
+
+		const starts = computePageStarts(parts.map(cleanText), text);
+		if (!starts) return [];
+		const tokens = tokenize(text).map((t) => normalizeForMatch(t.text));
+		const navDir = navPath.includes("/")
+			? navPath.slice(0, navPath.lastIndexOf("/") + 1)
+			: "";
+
+		const toc: TocEntry[] = [];
+		for (const e of entries) {
+			let target = e.href;
+			try {
+				target = decodeURIComponent(target);
+			} catch {
+				/* keep as is */
+			}
+			const part = partPaths.indexOf(
+				normalizeEpubPath(navDir + stripHrefFragment(target)),
+			);
+			if (part < 0) continue;
+			const end = part + 1 < starts.length ? starts[part + 1] : tokens.length;
+			const startWord = target.includes("#")
+				? refineStart(tokens, starts[part], end, e.title)
+				: starts[part];
+			toc.push({ title: e.title, level: e.level, startWord, page: null });
+		}
+		return toc;
+	} catch (err) {
+		console.warn("[speeedy] EPUB table of contents not read:", err);
+		return [];
+	}
+}
+
+function readNav(doc: Document): NavEntry[] {
+	const navs = getElementsByLocalName(doc, "nav");
+	const toc =
+		navs.find((n) =>
+			(n.getAttribute("epub:type") ?? n.getAttributeNS("*", "type") ?? "")
+				.split(/\s+/)
+				.includes("toc"),
+		) ?? navs[0];
+	if (!toc) return [];
+	const entries: NavEntry[] = [];
+	const walk = (list: Element, level: number) => {
+		for (const li of Array.from(list.children)) {
+			if (li.localName !== "li") continue;
+			const a = Array.from(li.children).find((c) => c.localName === "a");
+			const href = a?.getAttribute("href");
+			const title = (a?.textContent ?? "").replace(/\s+/g, " ").trim();
+			if (href && title) entries.push({ title, href, level });
+			const sub = Array.from(li.children).find((c) => c.localName === "ol");
+			if (sub) walk(sub, level + 1);
+		}
+	};
+	const ol = Array.from(toc.children).find((c) => c.localName === "ol");
+	if (ol) walk(ol, 1);
+	return entries;
+}
+
+function readNcx(doc: Document): NavEntry[] {
+	const entries: NavEntry[] = [];
+	const walk = (parent: Element, level: number) => {
+		for (const point of Array.from(parent.children)) {
+			if (point.localName !== "navPoint") continue;
+			const label = Array.from(point.children).find(
+				(c) => c.localName === "navLabel",
+			);
+			const title = (label?.textContent ?? "").replace(/\s+/g, " ").trim();
+			const content = Array.from(point.children).find(
+				(c) => c.localName === "content",
+			);
+			const href = content?.getAttribute("src");
+			if (href && title) entries.push({ title, href, level });
+			walk(point, level + 1);
+		}
+	};
+	const navMap = getElementsByLocalName(doc, "navMap")[0];
+	if (navMap) walk(navMap, 1);
+	return entries;
 }
 
 async function findOpfFile(zip: JSZip) {

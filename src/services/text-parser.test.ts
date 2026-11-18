@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { tokenize } from "./rsvp-engine.js";
 import {
 	applyBionicReading,
 	createDocFromText,
@@ -138,4 +139,111 @@ describe("createDocFromText", () => {
 		expect(doc.text).toBe("");
 		expect(doc.wordCount).toBe(0);
 	});
+});
+
+describe("table of contents while parsing", () => {
+	const fixture = (name: string, type: string) =>
+		new File(
+			[readFileSync(join(import.meta.dirname, `../../test-fixtures/${name}`))],
+			name.split("/").pop() ?? name,
+			{ type },
+		);
+	const wordAt = (text: string, index: number) => tokenize(text)[index]?.text;
+
+	it("reads Word headings (Heading 1, 2) with their first word", async () => {
+		const doc = await parseFile(
+			fixture(
+				"docx/headings.docx",
+				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			),
+		);
+		expect(doc.text).toContain("Voorwoord zonder kop");
+		expect(doc.toc?.map((e) => [e.title, e.level])).toEqual([
+			["Introductie", 1],
+			["Achtergrond", 2],
+			["Conclusie", 1],
+		]);
+		expect(doc.toc?.map((e) => wordAt(doc.text, e.startWord))).toEqual([
+			"Introductie",
+			"Achtergrond",
+			"Conclusie",
+		]);
+	});
+
+	it("gives no table of contents for Word text that is only bold, without heading styles", async () => {
+		const doc = await parseFile(
+			fixture(
+				"docx/bold-no-heading-styles.docx",
+				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			),
+		);
+		expect(doc.text).toContain("Tekst onder een vetgedrukte regel.");
+		expect(doc.toc).toEqual([]);
+	});
+
+	it("reads Markdown headings", async () => {
+		const file = new File(["# Een\n\nTekst.\n\n## Twee\n\nMeer."], "notes.md", {
+			type: "text/markdown",
+		});
+		const doc = await parseFile(file);
+		expect(doc.toc?.map((e) => e.title)).toEqual(["Een", "Twee"]);
+	});
+
+	async function makeEpub(withNav: "nav" | "ncx"): Promise<File> {
+		const { default: JSZip } = await import("jszip");
+		const zip = new JSZip();
+		zip.file("mimetype", "application/epub+zip");
+		zip.file(
+			"META-INF/container.xml",
+			'<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
+		);
+		const navItem =
+			withNav === "nav"
+				? '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
+				: '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>';
+		zip.file(
+			"OEBPS/content.opf",
+			`<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Toc Book</dc:title></metadata><manifest>${navItem}<item id="c1" href="text/ch1.xhtml" media-type="application/xhtml+xml"/><item id="c2" href="text/ch2.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c1"/><itemref idref="c2"/></spine></package>`,
+		);
+		const page = (body: string) =>
+			`<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body>${body}</body></html>`;
+		zip.file(
+			"OEBPS/text/ch1.xhtml",
+			page(
+				'<h1>First chapter</h1><p>Alpha words here.</p><h2 id="s">Inner part</h2><p>Beta words.</p>',
+			),
+		);
+		zip.file(
+			"OEBPS/text/ch2.xhtml",
+			page("<h1>Second chapter</h1><p>Gamma words.</p>"),
+		);
+		zip.file(
+			"OEBPS/nav.xhtml",
+			page(
+				'<nav xmlns:epub="http://www.idpf.org/2007/ops" epub:type="toc"><ol><li><a href="text/ch1.xhtml">First chapter</a><ol><li><a href="text/ch1.xhtml#s">Inner part</a></li></ol></li><li><a href="text/ch2.xhtml">Second chapter</a></li></ol></nav>',
+			),
+		);
+		zip.file(
+			"OEBPS/toc.ncx",
+			'<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap><navPoint><navLabel><text>First chapter</text></navLabel><content src="text/ch1.xhtml"/><navPoint><navLabel><text>Inner part</text></navLabel><content src="text/ch1.xhtml#s"/></navPoint></navPoint><navPoint><navLabel><text>Second chapter</text></navLabel><content src="text/ch2.xhtml"/></navPoint></navMap></ncx>',
+		);
+		const blob = await zip.generateAsync({ type: "arraybuffer" });
+		return new File([blob], "book.epub", { type: "application/epub+zip" });
+	}
+
+	for (const kind of ["nav", "ncx"] as const) {
+		it(`reads the EPUB table of contents from the ${kind === "nav" ? "EPUB 3 nav" : "EPUB 2 NCX"}`, async () => {
+			const doc = await parseFile(await makeEpub(kind));
+			expect(doc.toc?.map((e) => [e.title, e.level])).toEqual([
+				["First chapter", 1],
+				["Inner part", 2],
+				["Second chapter", 1],
+			]);
+			expect(doc.toc?.map((e) => wordAt(doc.text, e.startWord))).toEqual([
+				"First",
+				"Inner",
+				"Second",
+			]);
+		});
+	}
 });

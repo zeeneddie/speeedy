@@ -128,6 +128,8 @@ export interface ReaderSettings {
 
 export interface ReadingSession {
 	id: string;
+	/** Library document this session belongs to; absent for sessions recorded before it was tracked. */
+	docId?: string;
 	date: string;
 	sourceTitle: string;
 	wordCount: number;
@@ -172,6 +174,8 @@ export interface ParsedDocument {
 	pages?: string[];
 	/** The imported file itself, so the original can be shown next to the reader. Not persisted on the document. */
 	originalFile?: Blob;
+	/** Table of contents found while parsing (PDF outline, EPUB navigation, Markdown or Word headings). */
+	toc?: TocEntry[];
 }
 
 /** Text preparation the reader applied when a mark was made; word indices only hold under the same one. */
@@ -189,6 +193,35 @@ export interface Mark {
 	prep: MarkPrep;
 	/** The sentence (first words of long ones), to find its place again. */
 	quote: string;
+}
+
+/** A stretch of words read without a jump, inclusive, in plain word indices (citation filter off). */
+export interface ReadSpan {
+	start: number;
+	end: number;
+}
+
+/** One reading session of a document: when, how long, and which stretches were actually read. */
+export interface DocSession {
+	id: string;
+	startedAt: string;
+	endedAt: string;
+	/** Active reading time, pauses excluded. */
+	durationMs: number;
+	wordsRead: number;
+	wpm: number;
+	spans: ReadSpan[];
+}
+
+/** A heading of the document, for the table of contents. */
+export interface TocEntry {
+	title: string;
+	/** 1 = chapter, 2 = section, … */
+	level: number;
+	/** First word of the heading's part, in plain word indices. */
+	startWord: number;
+	/** Source page (0-based) when known. */
+	page: number | null;
 }
 
 /** Kinds of original files that can be stored and shown. Only PDF for now. */
@@ -217,6 +250,10 @@ export interface SavedDocument {
 	original?: OriginalRef;
 	/** Marked sentences; documents with marks are never pruned automatically. */
 	marks?: Mark[];
+	/** Reading sessions with the stretches actually read. */
+	sessions?: DocSession[];
+	/** Table of contents; an empty array means "looked, none found"; absent means "not looked yet". */
+	toc?: TocEntry[];
 }
 
 export interface OrpResult {

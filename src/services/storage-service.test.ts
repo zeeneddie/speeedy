@@ -41,6 +41,10 @@ vi.mock("idb", () => {
 				return {
 					store: {
 						openCursor: async () => nextCursor(),
+						get: async (key: IDBValidKey) => store.get(key),
+						put: async (value: { id: string }) => {
+							store.set(value.id, value);
+						},
 					},
 					done: Promise.resolve(),
 				};
