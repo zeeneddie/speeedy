@@ -226,7 +226,13 @@ describe("table of contents while parsing", () => {
 		expect(doc.toc?.map((e) => e.title)).toEqual(["Een", "Twee"]);
 	});
 
-	async function makeEpub(withNav: "nav" | "ncx"): Promise<File> {
+	const tocNav =
+		'<nav xmlns:epub="http://www.idpf.org/2007/ops" epub:type="toc"><ol><li><a href="text/ch1.xhtml">First chapter</a><ol><li><a href="text/ch1.xhtml#s">Inner part</a></li></ol></li><li><a href="text/ch2.xhtml">Second chapter</a></li></ol></nav>';
+
+	async function makeEpub(
+		withNav: "nav" | "ncx",
+		navBody = tocNav,
+	): Promise<File> {
 		const { default: JSZip } = await import("jszip");
 		const zip = new JSZip();
 		zip.file("mimetype", "application/epub+zip");
@@ -254,12 +260,7 @@ describe("table of contents while parsing", () => {
 			"OEBPS/text/ch2.xhtml",
 			page("<h1>Second chapter</h1><p>Gamma words.</p>"),
 		);
-		zip.file(
-			"OEBPS/nav.xhtml",
-			page(
-				'<nav xmlns:epub="http://www.idpf.org/2007/ops" epub:type="toc"><ol><li><a href="text/ch1.xhtml">First chapter</a><ol><li><a href="text/ch1.xhtml#s">Inner part</a></li></ol></li><li><a href="text/ch2.xhtml">Second chapter</a></li></ol></nav>',
-			),
-		);
+		zip.file("OEBPS/nav.xhtml", page(navBody));
 		zip.file(
 			"OEBPS/toc.ncx",
 			'<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap><navPoint><navLabel><text>First chapter</text></navLabel><content src="text/ch1.xhtml"/><navPoint><navLabel><text>Inner part</text></navLabel><content src="text/ch1.xhtml#s"/></navPoint></navPoint><navPoint><navLabel><text>Second chapter</text></navLabel><content src="text/ch2.xhtml"/></navPoint></navMap></ncx>',
@@ -283,4 +284,15 @@ describe("table of contents while parsing", () => {
 			]);
 		});
 	}
+
+	it("picks the toc nav by its OPS namespace, whatever the prefix", async () => {
+		// A landmarks nav comes first; the prefix is "ops", not "epub".
+		const navs =
+			'<div xmlns:ops="http://www.idpf.org/2007/ops"><nav ops:type="landmarks"><ol><li><a href="text/ch2.xhtml">Second chapter</a></li></ol></nav><nav ops:type="toc"><ol><li><a href="text/ch1.xhtml">First chapter</a></li><li><a href="text/ch2.xhtml">Second chapter</a></li></ol></nav></div>';
+		const doc = await parseFile(await makeEpub("nav", navs));
+		expect(doc.toc?.map((e) => e.title)).toEqual([
+			"First chapter",
+			"Second chapter",
+		]);
+	});
 });

@@ -91,6 +91,14 @@ describe("buildWordMap", () => {
 		);
 	});
 
+	it("keeps the repeated word in place when a removal also glues two words", () => {
+		// Removing [1] glues foo and bar, so the counts differ and the forward
+		// match runs; it must still skip the Smith inside the citation.
+		const s = streams("Intro (Smith et al., 2020) Smith foo[1]bar");
+		expect(s.filtered).toEqual(["Intro", "Smith", "foobar"]);
+		expect(s.map[1]).toBe(5);
+	});
+
 	it("maps a word used before, inside and after a citation to its own place", () => {
 		const s = streams("growth then (Growth, 2020) growth then [1] growth.");
 		expect(s.filtered).toEqual(["growth", "then", "growth", "then", "growth."]);
@@ -262,6 +270,24 @@ describe("SessionRecorder", () => {
 		for (let i = 0; i < 10; i++) rec.onWords(i, 1, i * 500);
 		rec.pause(5200);
 		expect(rec.finish()?.durationMs).toBe(5200);
+	});
+
+	it("ends the session at the pause that closed the last word", () => {
+		// Ten words up to 4.5 s, paused at 5.2 s: the active time ends at the pause.
+		const rec = new SessionRecorder();
+		for (let i = 0; i < 10; i++) rec.onWords(i, 1, i * 500);
+		rec.pause(5200);
+		const s = rec.finish();
+		expect(s?.endedAt).toBe(new Date(5200).toISOString());
+		expect(s?.startedAt).toBe(new Date(0).toISOString());
+	});
+
+	it("does not move the session end to a pause after a long gap", () => {
+		// The gap to the pause is longer than a word may take: not counted.
+		const rec = new SessionRecorder();
+		for (let i = 0; i < 20; i++) rec.onWords(i, 1, i * 500);
+		rec.pause(9500 + 60_000);
+		expect(rec.finish()?.endedAt).toBe(new Date(9500).toISOString());
 	});
 
 	it("discards a session paused just before 5 s", () => {

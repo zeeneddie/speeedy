@@ -544,11 +544,18 @@ async function epubToc(
 	}
 }
 
+/** Namespace of `epub:type`, whatever prefix the document binds to it. */
+const OPS_NAMESPACE = "http://www.idpf.org/2007/ops";
+
 function readNav(doc: Document): NavEntry[] {
 	const navs = getElementsByLocalName(doc, "nav");
 	const toc =
 		navs.find((n) =>
-			(n.getAttribute("epub:type") ?? n.getAttributeNS("*", "type") ?? "")
+			(
+				n.getAttributeNS(OPS_NAMESPACE, "type") ??
+				n.getAttribute("epub:type") ??
+				""
+			)
 				.split(/\s+/)
 				.includes("toc"),
 		) ?? navs[0];

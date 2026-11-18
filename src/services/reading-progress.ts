@@ -15,11 +15,12 @@ export const FULLY_READ_RATIO = 0.99;
  * stripCitations removes, and the kept plain words pair up in order with the
  * filtered ones. When the counts do not line up (a removal glued two words
  * together, or the segmentation differs) it falls back to matching words
- * forward; a word that is not found there stays -1.
+ * forward among the kept plain words; a word that is not found there stays -1.
  */
 export function buildWordMap(text: string, filtered: string[]): Int32Array {
 	const plain = tokenize(text).map((t) => t.text);
 	const starts = wordStarts(text);
+	let candidates = plain.map((_, j) => j);
 	if (starts.length === plain.length) {
 		const ranges = citationRanges(text);
 		const kept: number[] = [];
@@ -30,22 +31,31 @@ export function buildWordMap(text: string, filtered: string[]): Int32Array {
 			kept.push(j);
 		});
 		if (kept.length === filtered.length) return Int32Array.from(kept);
+		// Words inside a removed citation are never shown: keep them out of the fallback.
+		candidates = kept;
 	}
-	return matchForward(plain, filtered);
+	return matchForward(plain, filtered, candidates);
 }
 
-/** Matches each filtered word to the next equal plain word (normalized); -1 when not found. */
-function matchForward(plain: string[], filtered: string[]): Int32Array {
-	const plainNorm = plain.map(normalizeForMatch);
+/**
+ * Matches each filtered word to the next equal plain word (normalized) among
+ * `candidates` (plain indices, ascending); -1 when not found.
+ */
+function matchForward(
+	plain: string[],
+	filtered: string[],
+	candidates: number[],
+): Int32Array {
+	const candidateNorm = candidates.map((j) => normalizeForMatch(plain[j]));
 	const map = new Int32Array(filtered.length).fill(-1);
 	let cursor = 0;
 	for (let i = 0; i < filtered.length; i++) {
 		const word = normalizeForMatch(filtered[i]);
 		if (!word) continue;
-		for (let j = cursor; j < plain.length; j++) {
-			if (plainNorm[j] === word) {
-				map[i] = j;
-				cursor = j + 1;
+		for (let c = cursor; c < candidates.length; c++) {
+			if (candidateNorm[c] === word) {
+				map[i] = candidates[c];
+				cursor = c + 1;
 				break;
 			}
 		}
@@ -180,8 +190,8 @@ export class SessionRecorder {
 	private startedAt: number | null = null;
 	/** Time of the previous word while playing; null after a pause, so the pause is not counted. */
 	private lastAt: number | null = null;
-	/** Time of the last word shown, for the session end. */
-	private lastWordAt: number | null = null;
+	/** End of the reading time counted so far (last word shown or the pause that closed it), for the session end. */
+	private activeEndAt: number | null = null;
 	private activeMs = 0;
 	/** Words shown, rereading included; words the citation filter removed are never shown. */
 	private wordsShown = 0;
@@ -199,7 +209,7 @@ export class SessionRecorder {
 		if (this.startedAt === null) this.startedAt = now;
 		this.closeActive(now);
 		this.lastAt = now;
-		this.lastWordAt = now;
+		this.activeEndAt = now;
 		this.wordsShown += count;
 	}
 
@@ -207,6 +217,7 @@ export class SessionRecorder {
 	private closeActive(now: number): void {
 		if (this.lastAt !== null && now - this.lastAt <= MAX_WORD_GAP_MS) {
 			this.activeMs += now - this.lastAt;
+			this.activeEndAt = now;
 		}
 	}
 
@@ -239,7 +250,7 @@ export class SessionRecorder {
 		);
 		const wordsRead = this.wordsShown;
 		const startedAt = this.startedAt;
-		const endedAt = this.lastWordAt ?? Date.now();
+		const endedAt = this.activeEndAt ?? Date.now();
 		const durationMs = this.activeMs;
 		this.reset();
 		if (
@@ -266,7 +277,7 @@ export class SessionRecorder {
 		this.current = null;
 		this.startedAt = null;
 		this.lastAt = null;
-		this.lastWordAt = null;
+		this.activeEndAt = null;
 		this.activeMs = 0;
 		this.wordsShown = 0;
 	}
