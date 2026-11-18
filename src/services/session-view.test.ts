@@ -5,6 +5,7 @@ import {
 	buildWordMap,
 	FULLY_READ_RATIO,
 	GAP_TOLERANCE_WORDS,
+	toPlainIndex,
 } from "./reading-progress.js";
 import { tokenize } from "./rsvp-engine.js";
 import {
@@ -110,6 +111,21 @@ describe("sessionPieces", () => {
 			startFrac: 0.6,
 			endFrac: 1,
 		});
+	});
+
+	it("draws a stored span where the recorder took it from, also next to an unmapped word", () => {
+		// "a[1]b" becomes "ab", which matches no plain word: filtered 1 is unmapped.
+		const text = "pre a[1]b tail";
+		const filtered = tokenize(stripCitations(text)).map((t) => t.text);
+		const map = buildWordMap(text, filtered);
+		expect(Array.from(map)).toEqual([0, -1, 4]);
+		const plainTotal = tokenize(text).length;
+		// Reading filtered 1–2 is stored as plain 1–4 (toPlainIndex): bar 1/3 – 3/3.
+		expect(toPlainIndex(map, 1)).toBe(1);
+		expect(toPlainIndex(map, 2)).toBe(4);
+		expect(sessionPieces([session([[1, 4]])], plainTotal, map)).toEqual([
+			{ sessionIndex: 1, tint: 0, startFrac: 1 / 3, endFrac: 1 },
+		]);
 	});
 
 	it("drops a stretch that lies entirely inside a removed citation", () => {

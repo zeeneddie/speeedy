@@ -99,6 +99,8 @@ export class RsvpReader extends LitElement {
 		label: string;
 	} | null = null;
 	private sessionTip = new SessionTip();
+	/** Whether the last render showed the session band. */
+	private sessionBandShown = false;
 	@state() private showMarksList = false;
 	/** Brief confirmation after pressing M. */
 	@state() private markFlash: "added" | "removed" | null = null;
@@ -369,6 +371,11 @@ export class RsvpReader extends LitElement {
 		}
 
 		this.alignRtlPivot();
+
+		// The band can vanish under an open tip (focus mode, tab Original, setting off); close the tip with it.
+		const bandShown = this.renderRoot.querySelector(".session-band") !== null;
+		if (this.sessionBandShown && !bandShown) this.sessionTip.hide();
+		this.sessionBandShown = bandShown;
 	}
 
 	/** RTL pivot alignment; updated on resize, not each word. */

@@ -324,6 +324,52 @@ describe("rsvp-reader session layer", () => {
 		el.remove();
 	});
 
+	it("hides an open session tip when the band goes away", async () => {
+		const el = await mount(true);
+		const r = el as unknown as {
+			settings: Record<string, unknown>;
+			readerTab: string;
+			sessionTip: { open: boolean };
+			requestUpdate(): void;
+			updateComplete: Promise<boolean>;
+		};
+		const hides: Event[] = [];
+		const onHide = (e: Event) => hides.push(e);
+		window.addEventListener("speeedy:hide-tooltip", onHide);
+		const hover = () => {
+			const band = el.querySelector<HTMLElement>(".session-band");
+			if (!band) throw new Error("no session band");
+			band.getBoundingClientRect = () => ({ left: 0, width: 200 }) as DOMRect;
+			band.dispatchEvent(
+				Object.assign(new Event("pointermove"), {
+					pointerType: "mouse",
+					clientX: 20,
+				}),
+			);
+			expect(r.sessionTip.open).toBe(true);
+		};
+		// Setting turned off.
+		hover();
+		r.settings = { ...r.settings, progressShowSessions: false };
+		await r.updateComplete;
+		expect(r.sessionTip.open).toBe(false);
+		expect(hides).toHaveLength(1);
+		// Tab Original.
+		r.settings = { ...r.settings, progressShowSessions: true };
+		await r.updateComplete;
+		hover();
+		r.readerTab = "original";
+		await r.updateComplete;
+		expect(r.sessionTip.open).toBe(false);
+		expect(hides).toHaveLength(2);
+		// Other renders leave the tooltip alone.
+		r.requestUpdate();
+		await r.updateComplete;
+		expect(hides).toHaveLength(2);
+		window.removeEventListener("speeedy:hide-tooltip", onHide);
+		el.remove();
+	});
+
 	it("draws nothing when progressShowSessions is off", async () => {
 		const el = await mount(false);
 		expect(el.querySelectorAll(".session-piece")).toHaveLength(0);

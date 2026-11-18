@@ -95,7 +95,7 @@ export class GlobalTooltip extends LitElement {
 				this.style.transform = "translateY(-50%)";
 				this.classList.add("side-right");
 			} else {
-				this.style.left = `${Math.min(rect.left + rect.width / 2, vw - tipWidth / 2 - 12)}px`;
+				this.style.left = `${Math.max(tipWidth / 2 + 12, Math.min(rect.left + rect.width / 2, vw - tipWidth / 2 - 12))}px`;
 				this.style.top = `${Math.max(anchor.top - 8, 8)}px`;
 				this.style.transformOrigin = "bottom center";
 				this.style.transform = "translate(-50%, -100%)";

@@ -1,6 +1,11 @@
 import type { DocSession, ReadSpan } from "../models/types.js";
 import { computePageStarts, pageForWord } from "./page-map.js";
-import { citationWordSpans, coverage, mergeSpans } from "./reading-progress.js";
+import {
+	citationWordSpans,
+	coverage,
+	mergeSpans,
+	toPlainIndex,
+} from "./reading-progress.js";
 import { tokenize } from "./rsvp-engine.js";
 
 /**
@@ -31,12 +36,17 @@ export function chronological(sessions?: DocSession[]): DocSession[] {
 	);
 }
 
-/** Filtered index of plain word boundary `plain`: the number of filtered words before it. */
-function filteredBoundary(map: Int32Array, plain: number): number {
-	for (let i = 0; i < map.length; i++) {
-		if (map[i] >= plain) return i;
+/**
+ * Filtered index of plain word boundary `plain`: the number of filtered words
+ * the recorder stores before it. `plainOf[i]` is `toPlainIndex(map, i)`, the
+ * number the recorder stores for filtered word `i`, so unmapped words count
+ * where the recorder puts them.
+ */
+function filteredBoundary(plainOf: number[], plain: number): number {
+	for (let i = 0; i < plainOf.length; i++) {
+		if (plainOf[i] >= plain) return i;
 	}
-	return map.length;
+	return plainOf.length;
 }
 
 /**
@@ -53,8 +63,11 @@ export function sessionPieces(
 	if (totalWords <= 0) return [];
 	const barTotal = wordMap ? wordMap.length : totalWords;
 	if (barTotal <= 0) return [];
+	const plainOf = wordMap
+		? Array.from(wordMap, (_, i) => toPlainIndex(wordMap, i))
+		: null;
 	const toBar = (plain: number) =>
-		wordMap ? filteredBoundary(wordMap, plain) : plain;
+		plainOf ? filteredBoundary(plainOf, plain) : plain;
 	const pieces: SessionPiece[] = [];
 	chronological(sessions).forEach((session, i) => {
 		const spans = mergeSpans(
