@@ -3,6 +3,17 @@
 Opgesteld 2026-11-17 op verzoek van Eddie. Zes onderdelen, elk apart aan en uit te zetten, plus één
 hoofdschakelaar. Gebaseerd op de code van `zeeneddie/speeedy` op commit `028caa2` + de lokale opschoning.
 
+> **Wordt samengevoegd (besluit Eddie 2026-11-18).** Dit plan gaat samen met de nieuwe wens *sessies en
+> inhoudsopgave* op in één plan **voortgang en inhoud**, met één fundament voor kopjes en pagina's. Besluiten voor
+> dat deel:
+> - sessies per document (begin, einde, details bij hover/tik) zichtbaar in de lezer **én** in de bibliotheek;
+> - "volledig gelezen" = alle gelezen stukken samen dekken het document, op kleine gaten na; overgeslagen stukken
+>   blijven zichtbaar;
+> - inhoudsopgave links in de lezer met voortgang per kopje; totale voortgang bovenaan;
+> - pdf zonder ingebouwde inhoudsopgave: een lijst van pagina's in plaats van geraden kopjes.
+>
+> Volgorde: eerst de marks (`plan-origineel-tabblad.md`, fase 2), daarna dit plan.
+
 ## Wat er nu al is
 
 | Onderdeel | Stand | Waar |

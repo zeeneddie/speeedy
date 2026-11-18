@@ -53,9 +53,11 @@ Gebouwd en gemerged op 2026-11-18 ([PR #1](https://github.com/zeeneddie/speeedy/
 - importgrens = instelling `maxImportBytes`, standaard 500 MB;
 - tests: opslag, paginagrenzen, en een browsertest op de test-pdf inclusief citatenfilter en upgrade 2 → 3.
 
-## Fase 1 — Tabblad Origineel: weergave, meelopen, woordmarkering, klikken
+## Fase 1 — Tabblad Origineel: weergave, meelopen, woordmarkering, klikken ✅
 
-Voorheen fase 1 en 2, nu samen gebouwd.
+Voorheen fase 1 en 2, nu samen gebouwd. Gemerged op 2026-11-18 ([PR #2](https://github.com/zeeneddie/speeedy/pull/2)).
+Afwijking: klikken gaat via een eigen laag met de woordposities, niet via de `TextLayer` van pdf.js; na een klik
+start de lezer niet vanzelf (spatie).
 
 **Tabbladen.** Bovenaan de lezer twee tabs: *Snellezen* · *Origineel*. Sneltoets `O` om te wisselen.
 Overschakelen naar *Origineel* **pauzeert** het lezen; terug naar *Snellezen* gaat verder waar je was, of waar
@@ -214,8 +216,8 @@ vanzelf (de lezer voegt standaardwaarden samen, `rsvp-reader.ts:169`).
 | Fase | Inhoud | Omvang | Stand |
 |---|---|---|---|
 | 0 | origineel bewaren + paginagrenzen + tests | 1 dag | ✅ PR #1 |
-| 1 | tabblad, pdf-weergave, meelopen, woordkoppeling, huidig woord markeren, klikken om verder te lezen | 2,5–3,5 dagen | volgende |
-| 2 | marks: zetten, bewaren, tonen in origineel en lezer, lijst | 1,5–2 dagen | |
+| 1 | tabblad, pdf-weergave, meelopen, woordkoppeling, huidig woord markeren, klikken om verder te lezen | 2,5–3,5 dagen | ✅ PR #2 |
+| 2 | marks: zetten, bewaren, tonen in origineel en lezer, lijst | 1,5–2 dagen | volgende (besluit 2026-11-18) |
 | 3 | gesplitst scherm | 1–1,5 dag | |
 | 4 | vaste koppeling voor andere formaten, opruimen | ½ dag | |
 | 5 | pdf met marks downloaden | ½–1 dag | later, na akkoord |
