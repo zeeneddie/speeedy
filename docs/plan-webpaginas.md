@@ -17,6 +17,9 @@ Besluiten Eddie 2026-11-18:
 2. Het tabblad toont een **momentopname**, niet de live pagina.
 3. Pagina's achter een inlog (kranten, vakbladen) moeten **direct** werken → de **browserknop** is de eerste stap.
 4. Apart plan, in de wachtrij.
+5. **Eén extensie:** de jetzt-opvolger (TypeScript, Lit, Manifest V3) krijgt *Lees met speeedy* erbij.
+6. **Chrome én Edge.** Edge is op Chromium gebouwd; dezelfde extensie werkt in beide.
+7. **speeedy op de P620** (voorwaarde voor fase 2).
 
 ## Twee routes, één resultaat
 
@@ -44,7 +47,7 @@ Beide leveren hetzelfde: **tekst + plaatjes + momentopname**, opgeslagen zoals e
 
 ## Fase 1 — Browserknop (route A)
 
-**Vorm: een browserextensie** (Chrome, Manifest V3). Een bookmarklet is eenvoudiger, maar veel nieuwssites blokkeren
+**Vorm: een browserextensie** (Manifest V3) voor **Chrome en Edge**; één codebasis, want Edge is op Chromium gebouwd. Een bookmarklet is eenvoudiger, maar veel nieuwssites blokkeren
 het laden van extra scripts (Content-Security-Policy); een extensie heeft daar geen last van.
 
 - **Knop en sneltoets:** klik op het speeedy-icoon of kies *Lees met speeedy* in het rechtsklikmenu.
@@ -55,9 +58,15 @@ het laden van extra scripts (Content-Security-Policy); een extensie heeft daar g
   een derde partij.
 - **In speeedy:** het artikel komt binnen als nieuw document, met bron-url, titel en datum, en gaat direct naar de lezer.
 
-**Raakt jetzt.** Er staat een plan om jetzt (de oude Chrome-extensie) te vernieuwen naar TypeScript, Lit en Manifest V3.
-Deze extensie gebruikt dezelfde stack. Of het één extensie wordt (jetzt-opvolger met *Lees met speeedy*) of twee, is
-open punt 1.
+**Eén extensie met jetzt** (besluit 2026-11-18). De vernieuwing van jetzt (TypeScript, Lit, Manifest V3; zie het
+stackpaar-voorbeeld in `mq-platform/docs/evidence/migratie/SJABLOON.md`) en *Lees met speeedy* worden één extensie:
+snellezen op de pagina zelf (jetzt) én het artikel doorgeven aan speeedy. Volgorde: eerst de jetzt-vernieuwing als
+basis, dan *Lees met speeedy* erbij — of andersom als jetzt nog niet vernieuwd is wanneer dit plan aan de beurt is;
+dat beslist de lead bij de start.
+
+**Verspreiden:** zelf laden in de ontwikkelaarsmodus kan altijd (beide browsers waarschuwen dan bij het opstarten).
+Publiceren kan via de Chrome Web Store (eenmalig 5 dollar voor een ontwikkelaarsaccount) en Microsoft Edge Add-ons
+(gratis), desgewenst niet openbaar vindbaar. Keuze bij oplevering.
 
 ## Fase 2 — Url opgeven (route B)
 
@@ -73,8 +82,8 @@ open punt 1.
   - geen opslag van opgehaalde pagina's of adressen in de dienst; geen logregels met de url.
 - **Plaatjes** van het artikel lopen via dezelfde dienst (anders blokkeert de browser ze).
 
-**Voorwaarde:** speeedy draait op de server (P620 of P920, Docker) — nog te regelen; zie het eerdere voorstel
-(Dockerfile, compose, poort uit het poortregister, Traefik-route met certificaat).
+**Voorwaarde:** speeedy draait op de **P620** (besluit 2026-11-18) in Docker — nog te regelen: Dockerfile, compose,
+een poort uit het poortregister, een Traefik-route met certificaat (nodig voor installeren als app en offline gebruik).
 
 ## Fase 3 — Momentopname in het tabblad Origineel
 
@@ -107,6 +116,5 @@ open punt 1.
 
 ## Open punten voor Eddie
 
-1. Eén extensie (de jetzt-opvolger krijgt *Lees met speeedy* erbij) of twee aparte extensies?
-2. Alleen Chrome, of ook Firefox? (Manifest V3 werkt in beide, met kleine verschillen.)
-3. Waar draait speeedy op de server: P620 of P920? (Voorwaarde voor fase 2.)
+Geen. Besluiten 2026-11-18: één extensie met de jetzt-opvolger; Chrome en Edge; speeedy op de P620. Hoe de
+extensie verspreid wordt (zelf laden of via de winkels) wordt bij oplevering gekozen.
