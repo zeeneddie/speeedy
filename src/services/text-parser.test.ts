@@ -170,6 +170,43 @@ describe("table of contents while parsing", () => {
 		]);
 	});
 
+	// Text (and so the content hash) must stay what mammoth.extractRawText gave before
+	// the table of contents existed, or a re-import creates a duplicate document.
+	it.each([
+		"headings.docx",
+		"bold-no-heading-styles.docx",
+		"footnote-and-break.docx",
+	])("keeps the extractRawText text for Word file %s", async (name) => {
+		const docx = fixture(
+			`docx/${name}`,
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		);
+		const mammoth = await import("mammoth");
+		const raw = await mammoth.extractRawText({
+			arrayBuffer: await docx.arrayBuffer(),
+		});
+		// Same post-processing as parseDocx applied to extractRawText (cleanText).
+		const expected = raw.value
+			.replace(/\r\n/g, "\n")
+			.replace(/\r/g, "\n")
+			.replace(/\n{3,}/g, "\n\n")
+			.replace(/[ \t]{2,}/g, " ")
+			.trim();
+		expect((await parseFile(docx)).text).toBe(expected);
+	});
+
+	it("drops footnote references and notes, and joins soft line breaks like before", async () => {
+		const doc = await parseFile(
+			fixture(
+				"docx/footnote-and-break.docx",
+				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			),
+		);
+		expect(doc.text).toBe(
+			"Eerste zin met voetnoot en verder.\n\nRegel eenregel twee.",
+		);
+	});
+
 	it("gives no table of contents for Word text that is only bold, without heading styles", async () => {
 		const doc = await parseFile(
 			fixture(

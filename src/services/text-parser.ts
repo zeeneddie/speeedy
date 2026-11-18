@@ -215,46 +215,78 @@ async function parseDocx(file: File): Promise<ParsedDocument> {
 	const mammoth = await import("mammoth");
 	const arrayBuffer = await file.arrayBuffer();
 	const title = file.name.replace(/\.docx$/i, "");
-	// HTML keeps the heading styles (Heading 1, 2, …) as h1, h2, … for the table of contents.
-	const html = (await mammoth.convertToHtml({ arrayBuffer })).value;
-	const segments = htmlSegments(html);
-	const text = cleanText(segments.map((s) => s.text).join("\n\n"));
-	if (text) {
-		return {
-			title,
-			text,
-			wordCount: countWords(text),
-			toc: tocFromSegments(segments, text),
-		};
-	}
-	const raw = cleanText((await mammoth.extractRawText({ arrayBuffer })).value);
-	return { title, text: raw, wordCount: countWords(raw) };
+	// The text stays extractRawText's: it decides the content hash of earlier imports.
+	const text = cleanText((await mammoth.extractRawText({ arrayBuffer })).value);
+	// HTML keeps the heading styles (Heading 1, 2, …) as h1, h2, … for the table of
+	// contents. Each top-level block gets a marker so a heading can be traced back to
+	// its block, whose raw text then forms the segments.
+	const blockTexts: string[] = [];
+	const html = (
+		await mammoth.convertToHtml(
+			{ arrayBuffer },
+			{
+				transformDocument: (document: DocxElement) => {
+					document.children?.forEach((block, i) => {
+						blockTexts.push(rawText(block));
+						if (block.type === "paragraph")
+							block.children?.unshift({ type: "text", value: blockMarker(i) });
+					});
+					return document;
+				},
+			},
+		)
+	).value;
+	return {
+		title,
+		text,
+		wordCount: countWords(text),
+		toc: tocFromSegments(docxSegments(html, blockTexts), text),
+	};
 }
 
-/** Splits HTML into text segments, a new one at every heading (h1–h6). */
-export function htmlSegments(html: string): TextSegment[] {
+/** Minimal shape of mammoth's document tree. */
+interface DocxElement {
+	type: string;
+	value?: string;
+	children?: DocxElement[];
+}
+
+// Private-use characters: survive the HTML-to-text step and never occur in normal text.
+const blockMarker = (i: number) => `\uE000B${i}\uE000`;
+
+/** Same as mammoth's extractRawText for one element. */
+function rawText(element: DocxElement): string {
+	if (element.type === "text") return element.value ?? "";
+	if (element.type === "tab") return "\t";
+	const tail = element.type === "paragraph" ? "\n\n" : "";
+	return (element.children ?? []).map(rawText).join("") + tail;
+}
+
+/** Raw-text segments of the blocks, a new one at every top-level heading (h1–h6). */
+function docxSegments(html: string, blockTexts: string[]): TextSegment[] {
 	const doc = new DOMParser().parseFromString(html, "text/html");
-	// Private-use characters: survive the HTML-to-text step and never occur in normal text.
-	const marker = (i: number) => `\uE000SEG${i}\uE000`;
-	const headings = Array.from(doc.body.querySelectorAll("h1,h2,h3,h4,h5,h6"));
-	headings.forEach((h, i) => {
-		h.before(doc.createTextNode(marker(i)));
-	});
-	const plain = htmlToPlainText(doc.body.innerHTML);
-	const pieces = plain.split(/\uE000SEG(\d+)\uE000/);
-	const segments: TextSegment[] = [];
-	if (pieces[0].trim()) segments.push({ text: cleanText(pieces[0]) });
-	for (let i = 1; i < pieces.length; i += 2) {
-		const h = headings[Number(pieces[i])];
-		segments.push({
-			text: cleanText(pieces[i + 1] ?? ""),
-			heading: {
-				title: (h.textContent ?? "").replace(/\s+/g, " ").trim(),
-				level: Number(h.tagName[1]),
-			},
+	const segments: TextSegment[] = [{ text: "" }];
+	const headingAt = new Map<number, { title: string; level: number }>();
+	for (const h of Array.from(doc.body.querySelectorAll("h1,h2,h3,h4,h5,h6"))) {
+		const content = h.textContent ?? "";
+		const match = /^\uE000B(\d+)\uE000/.exec(content);
+		if (!match) continue;
+		headingAt.set(Number(match[1]), {
+			title: content
+				.replace(/\uE000B\d+\uE000/g, "")
+				.replace(/\s+/g, " ")
+				.trim(),
+			level: Number(h.tagName[1]),
 		});
 	}
-	return segments.filter((s) => s.text || s.heading?.title);
+	blockTexts.forEach((blockText, i) => {
+		const heading = headingAt.get(i);
+		if (heading) segments.push({ text: "", heading });
+		segments[segments.length - 1].text += blockText;
+	});
+	return segments
+		.map((s) => ({ ...s, text: cleanText(s.text) }))
+		.filter((s) => s.text || s.heading?.title);
 }
 
 async function parseDocLegacy(file: File): Promise<ParsedDocument> {
