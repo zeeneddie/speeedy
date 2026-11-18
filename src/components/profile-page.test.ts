@@ -256,4 +256,26 @@ describe("profile-page library sessions", () => {
 		expect(hover()).toContain("p. 1 → p. 2");
 		el.remove();
 	});
+
+	it("hides an open session tip when the library section goes away", async () => {
+		const text = words(100);
+		docs.length = 0;
+		docs.push(
+			doc("tip", text, [
+				session("a", "2026-11-18T09:00:00.000Z", [{ start: 0, end: 79 }]),
+			]),
+		);
+		const el = (await renderLibrary()) as PageInternals & {
+			libraryPage: number;
+		};
+		let hides = 0;
+		const onHide = () => hides++;
+		window.addEventListener("speeedy:hide-tooltip", onHide);
+		hoverBand(card(el, "tip"), 0.1);
+		el.activeSection = "data";
+		await el.updateComplete;
+		expect(hides).toBe(1);
+		window.removeEventListener("speeedy:hide-tooltip", onHide);
+		el.remove();
+	});
 });

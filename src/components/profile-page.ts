@@ -1,4 +1,4 @@
-import { html, LitElement } from "lit";
+import { html, LitElement, type PropertyValues } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import {
 	ArrowLeft,
@@ -1176,7 +1176,11 @@ export class ProfilePage extends LitElement {
     `;
 	}
 
-	override updated(): void {
+	override updated(changed: PropertyValues): void {
+		// Switching section or library page removes the bands; close their tip.
+		if (changed.has("activeSection") || changed.has("libraryPage")) {
+			this.sessionTip.hide();
+		}
 		if (this.showAvatarCrop) this.drawCropPreview();
 	}
 
