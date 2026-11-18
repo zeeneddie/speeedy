@@ -52,6 +52,11 @@ Een sessie bestaat uit een of meer **stukken** (doorlopend gelezen reeksen woord
 eindigt bij *pauze* of bij een **sprong**: elke `seekToWord` / `seekBy` tijdens het lezen sluit het stuk af en
 begint een nieuw. Zo telt overgeslagen tekst niet als gelezen.
 
+> **Besluit Eddie 2026-11-18 (review PR #4):** bij het opslaan worden de stukken van één sessie samengevoegd tot
+> aaneengesloten blokken. Leesvolgorde en pauzegrenzen worden dus niet bewaard; voor fase 1 (welke delen zijn
+> gelezen, per sessie) is dat niet nodig en de opslag blijft klein. Het aantal **getoonde** woorden (inclusief
+> herlezen, exclusief weggefilterde citaten) bepaalt de drempel en de wpm, niet de lengte van de blokken.
+
 ```ts
 interface ReadSpan {            // woorden [start, end] inclusief, in "plain" woordnummers
   start: number;
