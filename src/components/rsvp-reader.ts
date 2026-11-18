@@ -18,6 +18,8 @@ import {
 import { computePageStarts, pageForWord } from "../services/page-map.js";
 import {
 	buildWordMap,
+	MIN_SESSION_MS,
+	MIN_SESSION_WORDS,
 	SessionRecorder,
 	toPlainIndex,
 } from "../services/reading-progress.js";
@@ -797,7 +799,10 @@ export class RsvpReader extends LitElement {
 
 	/** Stores the stretches read so far as a session of the current document. */
 	private saveDocSession(): void {
-		const docSession = this.sessionRecorder.finish(this.toPlainMapper());
+		const docSession = this.sessionRecorder.finish(
+			this.toPlainMapper(),
+			this.engine.tokens.length - 1,
+		);
 		if (docSession && this.savedDocId) {
 			void appendDocumentSession(this.savedDocId, docSession);
 		}
@@ -808,7 +813,7 @@ export class RsvpReader extends LitElement {
 		if (!this.sessionStartTime) return;
 		const durationMs = Date.now() - this.sessionStartTime;
 		const wordsRead = state.wordIndex - this.wordsAtSessionStart;
-		if (wordsRead < 10 || durationMs < 5000) return;
+		if (wordsRead < MIN_SESSION_WORDS || durationMs < MIN_SESSION_MS) return;
 
 		const wpm = Math.round((wordsRead / durationMs) * 60000);
 		const completionPercent = Math.round(
@@ -879,6 +884,9 @@ export class RsvpReader extends LitElement {
 
 	private handleVisibilityChange = (): void => {
 		if (document.visibilityState === "hidden") {
+			// Mobile browsers may kill a hidden tab without beforeunload. Reading
+			// after the return starts a new session, so nothing is stored twice.
+			this.saveDocSession();
 			this.persistProgress(this.engine.getState());
 		}
 	};

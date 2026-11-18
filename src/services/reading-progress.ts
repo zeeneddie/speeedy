@@ -81,12 +81,22 @@ export interface Coverage {
 	gaps: ReadSpan[];
 }
 
-/** What part of a document of `totalWords` (plain) the sessions cover. */
+/**
+ * What part of a document of `totalWords` (plain) the sessions cover.
+ * `totalWords` is `tokenize(text).length` of the plain text — the numbering the
+ * spans use — not `countWords`, which counts differently. Spans are clamped to
+ * [0, totalWords - 1].
+ */
 export function coverage(sessions: DocSession[], totalWords: number): Coverage {
 	if (totalWords <= 0) {
 		return { wordsRead: 0, ratio: 0, fullyRead: false, gaps: [] };
 	}
-	const spans = sessions.flatMap((s) => s.spans);
+	const spans = sessions.flatMap((s) =>
+		s.spans.map((span) => ({
+			start: Math.max(0, span.start),
+			end: Math.min(totalWords - 1, span.end),
+		})),
+	);
 	const exact = mergeSpans(spans);
 	const wordsRead = exact.reduce((n, s) => n + (s.end - s.start + 1), 0);
 	const closed = mergeSpans(spans, GAP_TOLERANCE_WORDS);
@@ -129,7 +139,10 @@ export function coverageOf(
 	return covered / (to - from + 1);
 }
 
-/** Sessions shorter than this are discarded (an accidental tap on space). */
+/**
+ * Sessions shorter than this are discarded (an accidental tap on space), unless
+ * they reach the end of the document: a short text read to the end counts.
+ */
 export const MIN_SESSION_MS = 5000;
 export const MIN_SESSION_WORDS = 10;
 
@@ -176,10 +189,15 @@ export class SessionRecorder {
 
 	/**
 	 * The session so far, with spans converted by `toPlain`; null when it is too
-	 * short to keep. Resets the recorder.
+	 * short to keep and does not reach `lastIndex` (the last word of the stream
+	 * played, before conversion). Resets the recorder.
 	 */
-	finish(toPlain: (index: number) => number = (i) => i): DocSession | null {
+	finish(
+		toPlain: (index: number) => number = (i) => i,
+		lastIndex = Number.POSITIVE_INFINITY,
+	): DocSession | null {
 		if (this.current) this.spans.push(this.current);
+		const reachedEnd = this.spans.some((s) => s.end >= lastIndex);
 		const spans = mergeSpans(
 			this.spans.map((s) => ({ start: toPlain(s.start), end: toPlain(s.end) })),
 		);
@@ -190,8 +208,8 @@ export class SessionRecorder {
 		this.reset();
 		if (
 			startedAt === null ||
-			wordsRead < MIN_SESSION_WORDS ||
-			durationMs < MIN_SESSION_MS
+			(!reachedEnd &&
+				(wordsRead < MIN_SESSION_WORDS || durationMs < MIN_SESSION_MS))
 		) {
 			return null;
 		}
@@ -201,7 +219,8 @@ export class SessionRecorder {
 			endedAt: new Date(endedAt).toISOString(),
 			durationMs,
 			wordsRead,
-			wpm: Math.round((wordsRead / durationMs) * 60_000),
+			// A short text shown in one chunk has no measured reading time.
+			wpm: durationMs > 0 ? Math.round((wordsRead / durationMs) * 60_000) : 0,
 			spans,
 		};
 	}

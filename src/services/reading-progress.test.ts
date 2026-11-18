@@ -148,6 +148,12 @@ describe("coverage", () => {
 		expect(result.gaps).toEqual([{ start: 980, end: 999 }]);
 	});
 
+	it("does not count spans beyond the document", () => {
+		const result = coverage([session([[0, 1500]])], 1000);
+		expect(result.wordsRead).toBe(1000);
+		expect(result.fullyRead).toBe(true);
+	});
+
 	it("combines sessions", () => {
 		const result = coverage([session([[0, 499]]), session([[500, 999]])], 1000);
 		expect(result.fullyRead).toBe(true);
@@ -198,6 +204,26 @@ describe("SessionRecorder", () => {
 		const rec = new SessionRecorder();
 		for (let i = 0; i < 5; i++) rec.onWords(i, 1, i * 200);
 		expect(rec.finish()).toBeNull();
+	});
+
+	it("keeps a short session that reaches the end of the document", () => {
+		// 40 words at 600 wpm: 3.9 s, below the minimum, but the whole text.
+		const rec = new SessionRecorder();
+		for (let i = 0; i < 40; i++) rec.onWords(i, 1, i * 100);
+		const s = rec.finish(undefined, 39);
+		expect(s?.spans).toEqual([{ start: 0, end: 39 }]);
+	});
+
+	it("gives no wpm for a text shown in a single chunk", () => {
+		const rec = new SessionRecorder();
+		rec.onWords(0, 3, 1000);
+		expect(rec.finish(undefined, 2)?.wpm).toBe(0);
+	});
+
+	it("still discards a short session that does not reach the end", () => {
+		const rec = new SessionRecorder();
+		for (let i = 0; i < 5; i++) rec.onWords(i, 1, i * 200);
+		expect(rec.finish(undefined, 39)).toBeNull();
 	});
 
 	it("converts word indices with the given mapping", () => {
