@@ -886,6 +886,10 @@ export class RsvpReader extends LitElement {
 		if (document.visibilityState === "hidden") {
 			// Mobile browsers may kill a hidden tab without beforeunload. Reading
 			// after the return starts a new session, so nothing is stored twice.
+			// Pause first (same path as the play/pause button): background timers
+			// would otherwise keep recording words nobody saw. No auto-resume.
+			const state = this.engine.getState();
+			if (state.playing || this.isCountingDown) this.togglePlay();
 			this.saveDocSession();
 			this.persistProgress(this.engine.getState());
 		}

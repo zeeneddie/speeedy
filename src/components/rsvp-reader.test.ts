@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../services/defaults.js";
 
 // Count how often the word map is built while keeping its real behaviour.
@@ -19,6 +19,7 @@ vi.mock("../services/storage-service.js", async (importOriginal) => {
 		...actual,
 		appendDocumentSession: appendSpy,
 		updateDocumentProgress: vi.fn(async () => {}),
+		getSavedDocuments: vi.fn(async () => []),
 	};
 });
 
@@ -27,11 +28,15 @@ interface ReaderInternals {
 	settings: typeof DEFAULT_SETTINGS;
 	rawDocText: string;
 	savedDocId: string | null;
-	engine: { load(text: string, settings: typeof DEFAULT_SETTINGS): void };
+	engine: {
+		load(text: string, settings: typeof DEFAULT_SETTINGS): void;
+		getState(): { playing: boolean; displayWordIndex: number };
+	};
 	sessionRecorder: { onWords(index: number, count: number, now: number): void };
 	saveDocSession(): void;
 	handleSettingsChange(e: CustomEvent): void;
 	handleVisibilityChange(): void;
+	togglePlay(): void;
 }
 
 beforeAll(async () => {
@@ -118,6 +123,43 @@ describe("rsvp-reader sessions", () => {
 		expect(appendSpy).toHaveBeenCalledTimes(2);
 		expect(appendSpy.mock.calls[1][1].spans).toEqual([{ start: 30, end: 59 }]);
 		setVisibility("visible");
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+		setVisibility("visible");
+	});
+
+	it("pauses a playing reader when the tab is hidden, so no unseen words are recorded", () => {
+		vi.useFakeTimers();
+		appendSpy.mockClear();
+		const reader = makeReader(words(500).join(" "));
+		// Connected, so the reader's own word listener feeds the recorder.
+		Object.assign(reader, {
+			profile: { settings: { removeCitations: false } },
+		});
+		document.body.appendChild(reader as unknown as Node);
+		reader.togglePlay(); // the play/pause button's path
+		vi.advanceTimersByTime(5_000);
+		expect(reader.engine.getState().playing).toBe(true);
+
+		setVisibility("hidden");
+		reader.handleVisibilityChange();
+		expect(reader.engine.getState().playing).toBe(false);
+		expect(appendSpy).toHaveBeenCalledTimes(1);
+		const shown = reader.engine.getState().displayWordIndex;
+
+		// Background timers keep running while the tab is hidden.
+		vi.advanceTimersByTime(60_000);
+		expect(reader.engine.getState().displayWordIndex).toBe(shown);
+
+		// No automatic resume on return, and nothing left to store.
+		setVisibility("visible");
+		reader.handleVisibilityChange();
+		expect(reader.engine.getState().playing).toBe(false);
+		reader.saveDocSession();
+		expect(appendSpy).toHaveBeenCalledTimes(1);
+		(reader as unknown as Element).remove();
 	});
 
 	it("keeps a short text read to the end", () => {
