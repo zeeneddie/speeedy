@@ -38,12 +38,15 @@ export function tocFromSegments(
 }
 
 const MD_HEADING = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
+const MD_FENCE = /^\s{0,3}(```|~~~)/;
 
-/** Splits Markdown into segments at heading lines (`#`, `##`, …). */
+/** Splits Markdown into segments at heading lines (`#`, `##`, …), skipping code fences. */
 export function markdownSegments(text: string): TextSegment[] {
 	const segments: TextSegment[] = [{ text: "" }];
+	let inFence = false;
 	for (const line of text.split("\n")) {
-		const match = MD_HEADING.exec(line);
+		if (MD_FENCE.test(line)) inFence = !inFence;
+		const match = inFence ? null : MD_HEADING.exec(line);
 		if (match) {
 			segments.push({
 				text: `${line}\n`,
@@ -132,7 +135,12 @@ export async function pdfToc(
 			if (page !== null && page >= 0 && page < starts.length) {
 				const pageEnd =
 					page + 1 < starts.length ? starts[page + 1] : tokens.length;
-				const from = Math.min(Math.max(starts[page], previous), pageEnd);
+				// The previous entry only narrows the search when it lies on this page;
+				// an outline that runs backwards starts at the top of the target page.
+				const from =
+					previous >= starts[page] && previous < pageEnd
+						? previous
+						: starts[page];
 				const startWord = refineStart(tokens, from, pageEnd, node.title);
 				previous = startWord;
 				toc.push({ title: node.title.trim(), level, startWord, page });

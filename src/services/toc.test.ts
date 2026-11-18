@@ -28,6 +28,13 @@ describe("Markdown table of contents", () => {
 		expect(wordAt(md, toc[2].startWord)).toBe("Chapter");
 	});
 
+	it("does not take a # line inside a code fence for a heading", () => {
+		const fenced =
+			"# Real\n\n```bash\n# just a comment\necho hi\n```\n\n## Also real\nText.";
+		const toc = tocFromSegments(markdownSegments(fenced), fenced);
+		expect(toc.map((e) => e.title)).toEqual(["Real", "Also real"]);
+	});
+
 	it("gives no entries when the segments do not add up to the text", () => {
 		expect(
 			tocFromSegments(
@@ -83,6 +90,22 @@ describe("pdfToc", () => {
 		expect(wordAt(text, toc[2].startWord)).toBe("Methods");
 		// "Main" is not on the page as words: it starts at the top of its page.
 		expect(wordAt(text, toc[1].startWord)).toBe("Some");
+	});
+
+	it("starts an entry on its own page when the outline runs out of order", async () => {
+		const backwards: PdfOutlineSource = {
+			...source,
+			getOutline: async () => [
+				{ title: "Methods", dest: [refs[2]], items: [] },
+				{ title: "Introduction", dest: "intro", items: [] },
+			],
+		};
+		const toc = await pdfToc(backwards, pages, text);
+		expect(toc.map((e) => [e.title, e.page])).toEqual([
+			["Methods", 2],
+			["Introduction", 1],
+		]);
+		expect(wordAt(text, toc[1].startWord)).toBe("Introduction");
 	});
 
 	it("is empty without an outline", async () => {

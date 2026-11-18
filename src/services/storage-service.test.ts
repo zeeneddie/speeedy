@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SavedDocument } from "../models/types.js";
+import type { DocSession, SavedDocument } from "../models/types.js";
 
-const { store, originals } = vi.hoisted(() => ({
+const { store, originals, hooks } = vi.hoisted(() => ({
 	/** The "documents" store. */
 	store: new Map<IDBValidKey, unknown>(),
 	/** The "originals" store. */
 	originals: new Map<IDBValidKey, unknown>(),
+	/** Runs once right after the next getAll, to force a concurrent write in between. */
+	hooks: { afterGetAll: null as null | (() => Promise<void>) },
 }));
 
 vi.mock("idb", () => {
@@ -13,7 +15,13 @@ vi.mock("idb", () => {
 		storeName === "originals" ? originals : store;
 	return {
 		openDB: vi.fn(async () => ({
-			getAll: async (storeName: string) => [...pick(storeName).values()],
+			getAll: async (storeName: string) => {
+				const values = [...pick(storeName).values()];
+				const hook = hooks.afterGetAll;
+				hooks.afterGetAll = null;
+				await hook?.();
+				return values;
+			},
 			put: async (storeName: string, value: unknown, key?: IDBValidKey) => {
 				pick(storeName).set(key ?? (value as { id: string }).id, value);
 			},
@@ -70,6 +78,7 @@ describe("storage-service documents", () => {
 	beforeEach(async () => {
 		store.clear();
 		originals.clear();
+		hooks.afterGetAll = null;
 		vi.resetModules();
 		vi.unstubAllGlobals();
 	});
@@ -157,6 +166,51 @@ describe("storage-service documents", () => {
 		});
 
 		expect(saved.id).toBe("old");
+	});
+
+	it("keeps a session appended while a duplicate is being saved", async () => {
+		store.set("old", makeDoc({ id: "old", text: "Same text" }));
+		const session: DocSession = {
+			id: "s1",
+			startedAt: "2026-11-18T09:59:54.000Z",
+			endedAt: "2026-11-18T10:00:00.000Z",
+			durationMs: 6000,
+			wordsRead: 2,
+			wpm: 300,
+			spans: [{ start: 0, end: 1 }],
+		};
+		const { saveDocument, appendDocumentSession } = await import(
+			"./storage-service.js"
+		);
+		// The append lands after saveDocument read the library and before it writes.
+		hooks.afterGetAll = () => appendDocumentSession("old", session);
+
+		const saved = await saveDocument({
+			title: "Copy",
+			text: "Same text",
+			wordCount: 2,
+			resumeWordIndex: 0,
+			completionPercent: 0,
+		});
+
+		expect((store.get("old") as SavedDocument).sessions).toEqual([session]);
+		expect(saved.sessions).toEqual([session]);
+	});
+
+	it("stores an empty table of contents on re-import when none was known", async () => {
+		store.set("old", makeDoc({ id: "old", text: "Same text" }));
+		const { saveDocument } = await import("./storage-service.js");
+		const saved = await saveDocument({
+			title: "Copy",
+			text: "Same text",
+			wordCount: 2,
+			resumeWordIndex: 0,
+			completionPercent: 0,
+			toc: [],
+		});
+
+		expect(saved.toc).toEqual([]);
+		expect((store.get("old") as SavedDocument).toc).toEqual([]);
 	});
 
 	describe("original files", () => {
