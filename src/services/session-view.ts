@@ -1,6 +1,7 @@
-import type { DocSession } from "../models/types.js";
-import { pageForWord } from "./page-map.js";
-import { coverage, mergeSpans } from "./reading-progress.js";
+import type { DocSession, ReadSpan } from "../models/types.js";
+import { computePageStarts, pageForWord } from "./page-map.js";
+import { citationWordSpans, coverage, mergeSpans } from "./reading-progress.js";
+import { tokenize } from "./rsvp-engine.js";
 
 /**
  * What the progress bar and the library need to show the sessions of a document.
@@ -161,17 +162,57 @@ export interface ReadingSummary {
 	firstUnreadWord: number | null;
 }
 
-/** Library summary of a document of `totalWords` plain words (`tokenize(text).length`). */
+/**
+ * Library summary of a document of `totalWords` plain words (`tokenize(text).length`).
+ * `unshown`: plain words the reader never shows (removed citations), counted as read.
+ */
 export function readingSummary(
 	sessions: DocSession[] | undefined,
 	totalWords: number,
+	unshown?: ReadSpan[],
 ): ReadingSummary {
 	const list = sessions ?? [];
-	const cov = coverage(list, totalWords);
+	const cov = coverage(list, totalWords, unshown);
 	return {
 		fullyRead: cov.fullyRead,
 		sessionCount: list.length,
 		firstUnreadWord:
 			cov.fullyRead || totalWords <= 0 ? null : (cov.gaps[0]?.start ?? 0),
+	};
+}
+
+/** Everything the reader's bar and the library show of a document's sessions. */
+export interface SessionView {
+	pieces: SessionPiece[];
+	/** Tooltip line per session, indexed by `sessionIndex - 1`. */
+	lines: string[];
+	summary: ReadingSummary;
+}
+
+/**
+ * Pieces, tooltip lines and summary of the sessions of a stored document
+ * (`text` and `pages` as saved, plain). With `removeCitations` the words of
+ * removed citations count as read, since the reader never shows them; with
+ * `wordMap` (from `buildWordMap`) the pieces follow the filtered stream, as the
+ * reader's bar does.
+ */
+export function sessionView(
+	text: string,
+	pages: string[] | null | undefined,
+	sessions: DocSession[] | undefined,
+	opts: { removeCitations?: boolean; wordMap?: Int32Array } = {},
+): SessionView {
+	const totalWords = tokenize(text).length;
+	const pageStarts = pages ? computePageStarts(pages, text) : null;
+	return {
+		pieces: sessionPieces(sessions, totalWords, opts.wordMap),
+		lines: sessionInfos(sessions, pageStarts).map((info) =>
+			formatSessionInfo(info),
+		),
+		summary: readingSummary(
+			sessions,
+			totalWords,
+			opts.removeCitations ? citationWordSpans(text, totalWords) : undefined,
+		),
 	};
 }

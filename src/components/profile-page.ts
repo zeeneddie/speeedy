@@ -17,7 +17,6 @@ import type {
 	UserProfile,
 } from "../models/types.js";
 import { AVATAR_EMOJIS, DEFAULT_SETTINGS } from "../services/defaults.js";
-import { computePageStarts } from "../services/page-map.js";
 import {
 	buildShareData,
 	downloadProfileBackup,
@@ -27,12 +26,9 @@ import {
 import { buildWordMap, toFilteredIndex } from "../services/reading-progress.js";
 import { tokenize } from "../services/rsvp-engine.js";
 import {
-	formatSessionInfo,
-	type ReadingSummary,
-	readingSummary,
 	type SessionPiece,
-	sessionInfos,
-	sessionPieces,
+	type SessionView,
+	sessionView,
 } from "../services/session-view.js";
 import {
 	formatDuration,
@@ -85,15 +81,7 @@ export class ProfilePage extends LitElement {
 	@state() private sharePrivacyAcknowledged = false;
 	private pendingImg: HTMLImageElement | null = null;
 	/** Session view per document id; tokenizing a document is costly, so it is done once per session list. */
-	private sessionViewCache = new Map<
-		string,
-		{
-			key: string;
-			summary: ReadingSummary;
-			pieces: SessionPiece[];
-			lines: string[];
-		}
-	>();
+	private sessionViewCache = new Map<string, SessionView & { key: string }>();
 	private sessionTipTimer: ReturnType<typeof setTimeout> | null = null;
 	private _dragActive = false;
 	private _dragStartX = 0;
@@ -717,27 +705,22 @@ export class ProfilePage extends LitElement {
 	}
 
 	/**
-	 * Session blocks, hover lines and summary of a document, in plain numbering
-	 * (citation filter off), as the reader's bar shows them without the filter.
-	 * Null without sessions. Cached per document and session list.
+	 * Session blocks, hover lines and summary of a document. The blocks are in
+	 * plain numbering (citation filter off), as the reader's bar shows them
+	 * without the filter; the summary follows the filter setting, so words the
+	 * reader never shows count as read. Null without sessions. Cached per document, session list, pages and
+	 * filter setting.
 	 */
 	private sessionView(doc: SavedDocument) {
 		const sessions = doc.sessions ?? [];
 		if (sessions.length === 0) return null;
-		const key = `${sessions.length}|${sessions.at(-1)?.id}|${doc.text.length}`;
+		const removeCitations = Boolean(this.profile?.settings.removeCitations);
+		const key = `${sessions.length}|${sessions.at(-1)?.id}|${doc.text.length}|${doc.pages?.length ?? "-"}|${removeCitations}`;
 		const cached = this.sessionViewCache.get(doc.id);
 		if (cached?.key === key) return cached;
-		const totalWords = tokenize(doc.text).length;
-		const pageStarts = doc.pages
-			? computePageStarts(doc.pages, doc.text)
-			: null;
 		const view = {
 			key,
-			summary: readingSummary(sessions, totalWords),
-			pieces: sessionPieces(sessions, totalWords),
-			lines: sessionInfos(sessions, pageStarts).map((info) =>
-				formatSessionInfo(info),
-			),
+			...sessionView(doc.text, doc.pages, sessions, { removeCitations }),
 		};
 		this.sessionViewCache.set(doc.id, view);
 		return view;
@@ -856,6 +839,7 @@ export class ProfilePage extends LitElement {
             title="Delete"
             @click=${async () => {
 							await deleteSavedDocument(doc.id);
+							this.sessionViewCache.delete(doc.id);
 							this.savedDocs = await getSavedDocuments();
 							const maxPage = Math.ceil(this.savedDocs.length / 10) || 1;
 							if (this.libraryPage > maxPage) this.libraryPage = maxPage;

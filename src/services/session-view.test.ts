@@ -12,6 +12,7 @@ import {
 	readingSummary,
 	sessionInfos,
 	sessionPieces,
+	sessionView,
 } from "./session-view.js";
 
 const session = (
@@ -236,5 +237,56 @@ describe("readingSummary", () => {
 			sessionCount: 0,
 			firstUnreadWord: null,
 		});
+	});
+});
+
+describe("sessionView", () => {
+	const words = (n: number, prefix = "w") =>
+		Array.from({ length: n }, (_, i) => `${prefix}${i}`).join(" ");
+
+	it("counts a removed citation at the end as read with the filter on, not with it off", () => {
+		// 300 words ending in a citation of 7 words: plain 307, filtered 300.
+		const text = `${words(300)} [1, 2, 3, 4, 5, 6, 7].`;
+		expect(tokenize(text)).toHaveLength(307);
+		expect(tokenize(stripCitations(text))).toHaveLength(300);
+		// Read to the end with the filter on: the last filtered word is plain 299.
+		const sessions = [session([[0, 299]])];
+		expect(
+			sessionView(text, null, sessions, { removeCitations: true }).summary,
+		).toEqual({ fullyRead: true, sessionCount: 1, firstUnreadWord: null });
+		expect(sessionView(text, null, sessions).summary).toEqual({
+			fullyRead: false,
+			sessionCount: 1,
+			firstUnreadWord: 300,
+		});
+	});
+
+	it("does not send the reader back into a removed citation between two read stretches", () => {
+		// a0..a99, a citation of 6 plain words, b0..b99: plain 206.
+		const text = `${words(100, "a")} [1, 2, 3, 4, 5, 6] ${words(100, "b")}`;
+		expect(tokenize(text)).toHaveLength(206);
+		const sessions = [
+			session([[0, 99]], "2026-11-01T00:00:00.000Z"),
+			session([[106, 205]], "2026-11-02T00:00:00.000Z"),
+		];
+		expect(
+			sessionView(text, null, sessions, { removeCitations: true }).summary
+				.fullyRead,
+		).toBe(true);
+		// Unread text after the citation is still found.
+		const partial = sessionView(text, null, [session([[0, 99]])], {
+			removeCitations: true,
+		});
+		expect(partial.summary.firstUnreadWord).toBe(106);
+	});
+
+	it("gives the same pieces and lines as the separate functions", () => {
+		const text = words(100);
+		const pages = [words(50), words(50)];
+		const sessions = [session([[0, 79]])];
+		const view = sessionView(text, pages, sessions);
+		expect(view.pieces).toEqual(sessionPieces(sessions, 100));
+		expect(view.lines).toHaveLength(1);
+		expect(view.lines[0]).toContain("p. 1 → p. 2");
 	});
 });

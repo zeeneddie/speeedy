@@ -164,4 +164,59 @@ describe("profile-page library sessions", () => {
 		// Plain 10 is the first unread word; without "[1]" it is one word earlier.
 		expect(navigations).toEqual([10, 9]);
 	});
+
+	it("counts words in removed citations as read when the filter is on", async () => {
+		// 300 words ending in a citation of 7 words: plain 307, filtered 300.
+		const text = `${words(300)} [1, 2, 3, 4, 5, 6, 7].`;
+		docs.length = 0;
+		// Read to the end with the filter on: the filtered stream ends at plain word 299.
+		docs.push(
+			doc("cited", text, [
+				session("a", "2026-11-18T09:00:00.000Z", [{ start: 0, end: 299 }]),
+			]),
+		);
+		const on = await renderLibrary(true);
+		expect(card(on, "cited").textContent).toContain("Fully read");
+		on.remove();
+		// Without the filter the citation was shown and is not read.
+		const off = await renderLibrary(false);
+		expect(card(off, "cited").textContent).not.toContain("Fully read");
+		expect(card(off, "cited").textContent).toContain(
+			"Continue at first unread",
+		);
+		off.remove();
+	});
+
+	it("updates the session lines when the pages of a document arrive later", async () => {
+		const text = words(100);
+		const sessions = [
+			session("a", "2026-11-18T09:00:00.000Z", [{ start: 0, end: 79 }]),
+		];
+		docs.length = 0;
+		docs.push(doc("paged", text, sessions));
+		const el = (await renderLibrary()) as PageInternals & {
+			savedDocs: SavedDocument[];
+		};
+		const hover = () => {
+			const shown: string[] = [];
+			const onShow = (e: Event) =>
+				shown.push((e as CustomEvent<{ text: string }>).detail.text);
+			window.addEventListener("speeedy:show-tooltip", onShow);
+			card(el, "paged")
+				.querySelector(".library-session-piece")
+				?.dispatchEvent(
+					Object.assign(new Event("pointerenter"), { pointerType: "mouse" }),
+				);
+			window.removeEventListener("speeedy:show-tooltip", onShow);
+			return shown[0];
+		};
+		expect(hover()).not.toContain("p. ");
+		// A re-import fills in the pages; text and sessions stay the same.
+		el.savedDocs = [
+			{ ...doc("paged", text, sessions), pages: [words(50), words(50)] },
+		];
+		await el.updateComplete;
+		expect(hover()).toContain("p. 1 → p. 2");
+		el.remove();
+	});
 });

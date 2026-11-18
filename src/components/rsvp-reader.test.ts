@@ -170,6 +170,22 @@ describe("rsvp-reader sessions", () => {
 		expect(appendSpy).toHaveBeenCalledTimes(1);
 		expect(appendSpy.mock.calls[0][1].spans).toEqual([{ start: 0, end: 7 }]);
 	});
+
+	it("adds the stored session once, also when the document load already brought it in", async () => {
+		const reader = makeReader(words(100).join(" ")) as ReaderInternals & {
+			docSessions: { id: string }[];
+		};
+		// The document load finishes while the write is pending and reads the new session from the store.
+		appendSpy.mockReset();
+		appendSpy.mockImplementation(async (_id, stored) => {
+			reader.docSessions = [stored];
+		});
+		for (let i = 0; i < 30; i++) reader.sessionRecorder.onWords(i, 1, i * 300);
+		reader.saveDocSession();
+		await new Promise((r) => setTimeout(r, 0));
+		expect(reader.docSessions).toHaveLength(1);
+		appendSpy.mockReset();
+	});
 });
 
 describe("rsvp-reader session layer", () => {
@@ -235,6 +251,38 @@ describe("rsvp-reader session layer", () => {
 		expect(
 			pieces.every((p) => p.className.includes("pointer-events-none")),
 		).toBe(true);
+		el.remove();
+	});
+
+	it("shows the newest session where sessions overlap: it is drawn on top", async () => {
+		const el = await mount(true);
+		const r = el as unknown as {
+			docSessions: unknown[];
+			requestUpdate(): void;
+			updateComplete: Promise<boolean>;
+			showSessionTip(e: Partial<PointerEvent>): void;
+		};
+		r.docSessions = [
+			session("2026-11-18T10:00:00Z", [{ start: 0, end: 199 }]),
+			session("2026-11-18T12:00:00Z", [{ start: 80, end: 119 }]),
+		];
+		r.requestUpdate();
+		await r.updateComplete;
+		const band = el.querySelector<HTMLElement>(".session-band");
+		if (!band) throw new Error("no session band");
+		band.getBoundingClientRect = () => ({ left: 0, width: 200 }) as DOMRect;
+		const shown: string[] = [];
+		const onShow = (e: Event) =>
+			shown.push((e as CustomEvent<{ text: string }>).detail.text);
+		window.addEventListener("speeedy:show-tooltip", onShow);
+		for (const clientX of [100, 20]) {
+			r.showSessionTip({ currentTarget: band, clientX });
+		}
+		window.removeEventListener("speeedy:show-tooltip", onShow);
+		expect(shown.map((t) => t.split(" · ")[0])).toEqual([
+			"Session 2",
+			"Session 1",
+		]);
 		el.remove();
 	});
 

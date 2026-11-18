@@ -27,15 +27,9 @@ import {
 import {
 	type PlaybackState,
 	RSVPEngine,
-	tokenize,
 	type WordToken,
 } from "../services/rsvp-engine.js";
-import {
-	formatSessionInfo,
-	type SessionPiece,
-	sessionInfos,
-	sessionPieces,
-} from "../services/session-view.js";
+import { type SessionPiece, sessionView } from "../services/session-view.js";
 import { recordSession } from "../services/stats-service.js";
 import {
 	appendDocumentSession,
@@ -502,23 +496,15 @@ export class RsvpReader extends LitElement {
 		let pieces: SessionPiece[] = [];
 		let lines: string[] = [];
 		if (this.docSessions.length > 0 && this.rawDocText) {
-			// Without the filter the engine plays the plain stream, so its length is the plain count.
-			const filtered = this.settings.removeCitations;
-			const plainTotal = filtered
-				? tokenize(this.rawDocText).length
-				: this.engine.tokens.length;
-			if (filtered) this.toPlainMapper(); // builds this.wordMap for the current stream
-			pieces = sessionPieces(
+			const removeCitations = this.settings.removeCitations;
+			if (removeCitations) this.toPlainMapper(); // builds this.wordMap for the current stream
+			({ pieces, lines } = sessionView(
+				this.rawDocText,
+				pages,
 				this.docSessions,
-				plainTotal,
-				filtered ? this.wordMap?.map : undefined,
-			);
-			const plainPageStarts = pages
-				? computePageStarts(pages, this.rawDocText)
-				: null;
-			lines = sessionInfos(this.docSessions, plainPageStarts).map((info) =>
-				formatSessionInfo(info),
-			);
+				// Only the pieces and lines are shown here; the summary is the library's.
+				{ wordMap: removeCitations ? this.wordMap?.map : undefined },
+			));
 		}
 		this.sessionLayerCache = {
 			sessions: this.docSessions,
@@ -536,9 +522,13 @@ export class RsvpReader extends LitElement {
 		const rect = band.getBoundingClientRect();
 		const ratio = (e.clientX - rect.left) / rect.width;
 		const { pieces, lines } = this.sessionLayer;
-		const i = pieces.findIndex(
-			(p) => ratio >= p.startFrac && ratio < p.endFrac,
-		);
+		// Later sessions are drawn on top: the last piece under the pointer wins.
+		let i = pieces.length - 1;
+		while (
+			i >= 0 &&
+			!(ratio >= pieces[i].startFrac && ratio < pieces[i].endFrac)
+		)
+			i--;
 		const el = band.querySelector<HTMLElement>(`[data-piece="${i}"]`);
 		if (i < 0 || !el) {
 			this.hideSessionTip();
@@ -948,7 +938,11 @@ export class RsvpReader extends LitElement {
 			void (async () => {
 				await appendDocumentSession(id, docSession);
 				// Show it on the bar once it is stored.
-				if (this.savedDocId === id)
+				// The document load may have read it from the store in the meantime.
+				if (
+					this.savedDocId === id &&
+					!this.docSessions.some((s) => s.id === docSession.id)
+				)
 					this.docSessions = [...this.docSessions, docSession];
 			})();
 		}

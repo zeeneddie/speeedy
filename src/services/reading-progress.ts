@@ -19,22 +19,49 @@ export const FULLY_READ_RATIO = 0.99;
  */
 export function buildWordMap(text: string, filtered: string[]): Int32Array {
 	const plain = tokenize(text).map((t) => t.text);
+	const kept = keptWords(text, plain.length);
+	if (kept?.length === filtered.length) return Int32Array.from(kept);
+	// Words inside a removed citation are never shown: keep them out of the fallback.
+	return matchForward(plain, filtered, kept ?? plain.map((_, j) => j));
+}
+
+/**
+ * Plain indices of the words stripCitations keeps (those not starting inside a
+ * removed citation); null when the word starts do not line up with the
+ * `plainCount` tokens.
+ */
+function keptWords(text: string, plainCount: number): number[] | null {
 	const starts = wordStarts(text);
-	let candidates = plain.map((_, j) => j);
-	if (starts.length === plain.length) {
-		const ranges = citationRanges(text);
-		const kept: number[] = [];
-		let r = 0;
-		starts.forEach((start, j) => {
-			while (r < ranges.length && ranges[r][1] <= start) r++;
-			if (r < ranges.length && ranges[r][0] <= start) return;
-			kept.push(j);
-		});
-		if (kept.length === filtered.length) return Int32Array.from(kept);
-		// Words inside a removed citation are never shown: keep them out of the fallback.
-		candidates = kept;
+	if (starts.length !== plainCount) return null;
+	const ranges = citationRanges(text);
+	const kept: number[] = [];
+	let r = 0;
+	starts.forEach((start, j) => {
+		while (r < ranges.length && ranges[r][1] <= start) r++;
+		if (r < ranges.length && ranges[r][0] <= start) return;
+		kept.push(j);
+	});
+	return kept;
+}
+
+/**
+ * Stretches of plain words (`tokenize(text)`, `plainCount` of them) that the
+ * citation filter removes, so the reader never shows them. Empty when the
+ * words cannot be placed exactly.
+ */
+export function citationWordSpans(
+	text: string,
+	plainCount: number,
+): ReadSpan[] {
+	const kept = keptWords(text, plainCount);
+	if (!kept) return [];
+	const spans: ReadSpan[] = [];
+	let next = 0;
+	for (const j of [...kept, plainCount]) {
+		if (j > next) spans.push({ start: next, end: j - 1 });
+		next = j + 1;
 	}
-	return matchForward(plain, filtered, candidates);
+	return spans;
 }
 
 /**
@@ -115,9 +142,15 @@ export interface Coverage {
  * What part of a document of `totalWords` (plain) the sessions cover.
  * `totalWords` is `tokenize(text).length` of the plain text — the numbering the
  * spans use — not `countWords`, which counts differently. Spans are clamped to
- * [0, totalWords - 1].
+ * [0, totalWords - 1]. `unshown` (plain) are words the reader never shows, such
+ * as removed citations ({@link citationWordSpans}): they count as covered for
+ * the ratio, the gaps and fully read, not for `wordsRead`.
  */
-export function coverage(sessions: DocSession[], totalWords: number): Coverage {
+export function coverage(
+	sessions: DocSession[],
+	totalWords: number,
+	unshown: ReadSpan[] = [],
+): Coverage {
 	if (totalWords <= 0) {
 		return { wordsRead: 0, ratio: 0, fullyRead: false, gaps: [] };
 	}
@@ -129,7 +162,7 @@ export function coverage(sessions: DocSession[], totalWords: number): Coverage {
 	);
 	const exact = mergeSpans(spans);
 	const wordsRead = exact.reduce((n, s) => n + (s.end - s.start + 1), 0);
-	const closed = mergeSpans(spans, GAP_TOLERANCE_WORDS);
+	const closed = mergeSpans([...spans, ...unshown], GAP_TOLERANCE_WORDS);
 	// Gaps at the very start or end are measured against the document edges.
 	const gaps: ReadSpan[] = [];
 	let next = 0;
@@ -146,8 +179,8 @@ export function coverage(sessions: DocSession[], totalWords: number): Coverage {
 	const ratio = Math.max(0, Math.min(1, (totalWords - gapWords) / totalWords));
 	return {
 		wordsRead,
-		ratio: closed.length ? ratio : 0,
-		fullyRead: closed.length > 0 && ratio >= FULLY_READ_RATIO,
+		ratio: exact.length ? ratio : 0,
+		fullyRead: exact.length > 0 && ratio >= FULLY_READ_RATIO,
 		gaps,
 	};
 }
