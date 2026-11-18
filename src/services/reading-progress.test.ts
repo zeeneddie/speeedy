@@ -27,7 +27,7 @@ describe("buildWordMap", () => {
 		const text = "One two [1] three four (Smith et al., 2020) five.";
 		const plain = tokenize(text).map((t) => t.text);
 		const filtered = tokenize(stripCitations(text)).map((t) => t.text);
-		const map = buildWordMap(plain, filtered);
+		const map = buildWordMap(text, filtered);
 		filtered.forEach((word, i) => {
 			expect(plain[map[i]]?.replace(/[^\p{L}]/gu, "")).toBe(
 				word.replace(/[^\p{L}]/gu, ""),
@@ -47,7 +47,7 @@ describe("buildWordMap", () => {
 	const streams = (text: string) => {
 		const plain = tokenize(text).map((t) => t.text);
 		const filtered = tokenize(stripCitations(text)).map((t) => t.text);
-		return { plain, filtered, map: buildWordMap(plain, filtered) };
+		return { plain, filtered, map: buildWordMap(text, filtered) };
 	};
 	const norm = (w: string | undefined) =>
 		(w ?? "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
@@ -83,6 +83,18 @@ describe("buildWordMap", () => {
 			expect(toFilteredIndex(s.map, toPlainIndex(s.map, i))).toBe(i);
 		}
 		expect(kept.size).toBe(s.filtered.length);
+	});
+
+	it("maps a repeated word to the one that was read, not to the one in the citation", () => {
+		expect(Array.from(streams("Intro (Smith et al., 2020) Smith").map)).toEqual(
+			[0, 5],
+		);
+	});
+
+	it("maps a word used before, inside and after a citation to its own place", () => {
+		const s = streams("growth then (Growth, 2020) growth then [1] growth.");
+		expect(s.filtered).toEqual(["growth", "then", "growth", "then", "growth."]);
+		expect(Array.from(s.map)).toEqual([0, 1, 4, 5, 7]);
 	});
 
 	it("keeps mapping across several long citations in a row", () => {
@@ -192,7 +204,7 @@ describe("SessionRecorder", () => {
 	it("does not count pause time as reading time", () => {
 		const rec = new SessionRecorder();
 		for (let i = 0; i < 20; i++) rec.onWords(i, 1, (i + 1) * 500);
-		rec.pause();
+		rec.pause(10_000);
 		// One minute paused, then reading continues with the next word.
 		for (let i = 20; i < 40; i++) rec.onWords(i, 1, 70_000 + (i - 19) * 500);
 		const s = rec.finish();
@@ -224,6 +236,46 @@ describe("SessionRecorder", () => {
 		const rec = new SessionRecorder();
 		for (let i = 0; i < 5; i++) rec.onWords(i, 1, i * 200);
 		expect(rec.finish(undefined, 39)).toBeNull();
+	});
+
+	it("counts the words shown, not the plain span they cover", () => {
+		// 8 words in 7 s; the citation filter removed 12 words between the 4th and 5th.
+		const rec = new SessionRecorder();
+		for (let i = 0; i < 8; i++) rec.onWords(i, 1, i * 1000);
+		expect(rec.finish((i) => (i < 4 ? i : i + 12))).toBeNull();
+	});
+
+	it("counts rereading as words read", () => {
+		// The same five words read four times: 20 words in 7.6 s.
+		const rec = new SessionRecorder();
+		for (let round = 0; round < 4; round++)
+			for (let i = 0; i < 5; i++) rec.onWords(i, 1, (round * 5 + i + 1) * 400);
+		const s = rec.finish();
+		expect(s?.wordsRead).toBe(20);
+		expect(s?.spans).toEqual([{ start: 0, end: 4 }]);
+		expect(s?.wpm).toBe(Math.round((20 / 7600) * 60_000));
+	});
+
+	it("counts the time of the last chunk up to the pause", () => {
+		// Ten words, the last at 4.5 s, paused at 5.2 s.
+		const rec = new SessionRecorder();
+		for (let i = 0; i < 10; i++) rec.onWords(i, 1, i * 500);
+		rec.pause(5200);
+		expect(rec.finish()?.durationMs).toBe(5200);
+	});
+
+	it("discards a session paused just before 5 s", () => {
+		const rec = new SessionRecorder();
+		for (let i = 0; i < 10; i++) rec.onWords(i, 1, i * 500);
+		rec.pause(4999);
+		expect(rec.finish()).toBeNull();
+	});
+
+	it("counts the time of the last chunk up to the end of the session", () => {
+		// Completion or leaving while still playing: no pause() before finish().
+		const rec = new SessionRecorder();
+		for (let i = 0; i < 10; i++) rec.onWords(i, 1, i * 500);
+		expect(rec.finish(undefined, undefined, 5000)?.durationMs).toBe(5000);
 	});
 
 	it("converts word indices with the given mapping", () => {

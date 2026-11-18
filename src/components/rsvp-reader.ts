@@ -26,7 +26,6 @@ import {
 import {
 	type PlaybackState,
 	RSVPEngine,
-	tokenize,
 	type WordToken,
 } from "../services/rsvp-engine.js";
 import { recordSession } from "../services/stats-service.js";
@@ -261,7 +260,7 @@ export class RsvpReader extends LitElement {
 		});
 		this.engine.on("stateChange", (s) => {
 			this.playbackState = s;
-			if (!s.playing) this.sessionRecorder.pause();
+			if (!s.playing) this.sessionRecorder.pause(Date.now());
 		});
 		this.engine.on("complete", (s) => {
 			this.playbackState = s;
@@ -788,7 +787,7 @@ export class RsvpReader extends LitElement {
 			this.wordMap = {
 				tokens,
 				map: buildWordMap(
-					tokenize(this.rawDocText).map((t) => t.text),
+					this.rawDocText,
 					tokens.map((t) => t.text),
 				),
 			};
@@ -802,6 +801,7 @@ export class RsvpReader extends LitElement {
 		const docSession = this.sessionRecorder.finish(
 			this.toPlainMapper(),
 			this.engine.tokens.length - 1,
+			Date.now(),
 		);
 		if (docSession && this.savedDocId) {
 			void appendDocumentSession(this.savedDocId, docSession);

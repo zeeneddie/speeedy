@@ -83,21 +83,51 @@ export function htmlToPlainText(html: string): string {
 	return text.trim();
 }
 
+// Numeric bracket citations: [1], [1, 2], [1-5], [1, 3–7]
+const NUMERIC_BRACKET = /\[\s*\d[\d,;\s\u2013-]*\]/g;
+
+// Author-year parenthetical citations:
+// (Smith, 2020), (Smith et al., 2020), (Smith & Jones, 2019; Doe, 2021)
+const AUTHOR_YEAR =
+	/\(\s*[A-Z][A-Za-z''\u2019.&\s]+(?:et\s+al\.?)?,?\s*\d{4}[a-z]?(?:\s*[;,]\s*[A-Z][A-Za-z''\u2019.&\s]+(?:et\s+al\.?)?,?\s*\d{4}[a-z]?)*\s*\)/g;
+
 /** Strip inline academic citations from text.
  *  Handles numeric brackets [1], [1, 2], [1-5] and
  *  author-year parentheticals (Smith, 2020), (Smith et al., 2020; Jones, 2021). */
 export function stripCitations(text: string): string {
-	// Numeric bracket citations: [1], [1, 2], [1-5], [1, 3–7]
-	const numericBracket = /\[\s*\d[\d,;\s\u2013-]*\]/g;
-
-	// Author-year parenthetical citations:
-	// (Smith, 2020), (Smith et al., 2020), (Smith & Jones, 2019; Doe, 2021)
-	const authorYear =
-		/\(\s*[A-Z][A-Za-z''\u2019.&\s]+(?:et\s+al\.?)?,?\s*\d{4}[a-z]?(?:\s*[;,]\s*[A-Z][A-Za-z''\u2019.&\s]+(?:et\s+al\.?)?,?\s*\d{4}[a-z]?)*\s*\)/g;
-
 	return text
-		.replace(numericBracket, "")
-		.replace(authorYear, "")
+		.replace(NUMERIC_BRACKET, "")
+		.replace(AUTHOR_YEAR, "")
 		.replace(/ {2,}/g, " ")
 		.trim();
+}
+
+/**
+ * The character ranges [start, end) of `text` that {@link stripCitations}
+ * removes, sorted. The author-year pass runs on the text without numeric
+ * citations, as in stripCitations; its matches are mapped back to `text`.
+ */
+export function citationRanges(text: string): [number, number][] {
+	const numeric = Array.from(text.matchAll(NUMERIC_BRACKET), (m) => [
+		m.index,
+		m.index + m[0].length,
+	]);
+	const rest = text.replace(NUMERIC_BRACKET, "");
+	// Position in `text` of position `p` in `rest`: add the numeric matches before it.
+	// A numeric match at the boundary is removed either way, so `<=` is safe.
+	const toText = (p: number) => {
+		let shift = 0;
+		for (const [start, end] of numeric) {
+			if (start - shift > p) break;
+			shift += end - start;
+		}
+		return p + shift;
+	};
+	const authorYear = Array.from(rest.matchAll(AUTHOR_YEAR), (m) => [
+		toText(m.index),
+		toText(m.index + m[0].length),
+	]);
+	return [...numeric, ...authorYear]
+		.map(([start, end]) => [start, end] as [number, number])
+		.sort((a, b) => a[0] - b[0]);
 }

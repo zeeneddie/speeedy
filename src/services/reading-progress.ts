@@ -1,5 +1,7 @@
 import type { DocSession, ReadSpan } from "../models/types.js";
+import { citationRanges } from "../utils/text-utils.js";
 import { normalizeForMatch } from "./pdf-word-geometry.js";
+import { tokenize, wordStarts } from "./rsvp-engine.js";
 
 /** Gaps of at most this many words between read stretches count as read. */
 export const GAP_TOLERANCE_WORDS = 5;
@@ -7,15 +9,33 @@ export const GAP_TOLERANCE_WORDS = 5;
 export const FULLY_READ_RATIO = 0.99;
 
 /**
- * Maps each word of a filtered token stream (e.g. citations stripped) to the
- * index of the same word in the plain stream; -1 when it cannot be placed.
- * The citation filter only removes text, and citations start and end with a
- * bracket (a word boundary), so the filtered words are a subsequence of the
- * plain ones. The search therefore has no window: a removed stretch of any
- * length is skipped, and the cursor only moves forward. A word that is not
- * found stays -1 and leaves the cursor in place. Words are compared normalized.
+ * Maps each word of the citation-free stream (`tokenize(stripCitations(text))`)
+ * to the index of the same word in the plain stream (`tokenize(text)`).
+ * Exact: a plain word is dropped when it starts inside a range that
+ * stripCitations removes, and the kept plain words pair up in order with the
+ * filtered ones. When the counts do not line up (a removal glued two words
+ * together, or the segmentation differs) it falls back to matching words
+ * forward; a word that is not found there stays -1.
  */
-export function buildWordMap(plain: string[], filtered: string[]): Int32Array {
+export function buildWordMap(text: string, filtered: string[]): Int32Array {
+	const plain = tokenize(text).map((t) => t.text);
+	const starts = wordStarts(text);
+	if (starts.length === plain.length) {
+		const ranges = citationRanges(text);
+		const kept: number[] = [];
+		let r = 0;
+		starts.forEach((start, j) => {
+			while (r < ranges.length && ranges[r][1] <= start) r++;
+			if (r < ranges.length && ranges[r][0] <= start) return;
+			kept.push(j);
+		});
+		if (kept.length === filtered.length) return Int32Array.from(kept);
+	}
+	return matchForward(plain, filtered);
+}
+
+/** Matches each filtered word to the next equal plain word (normalized); -1 when not found. */
+function matchForward(plain: string[], filtered: string[]): Int32Array {
 	const plainNorm = plain.map(normalizeForMatch);
 	const map = new Int32Array(filtered.length).fill(-1);
 	let cursor = 0;
@@ -163,6 +183,8 @@ export class SessionRecorder {
 	/** Time of the last word shown, for the session end. */
 	private lastWordAt: number | null = null;
 	private activeMs = 0;
+	/** Words shown, rereading included; words the citation filter removed are never shown. */
+	private wordsShown = 0;
 
 	/** Call for every chunk shown while playing: first word index and number of words in the chunk. */
 	onWords(index: number, count: number, now: number): void {
@@ -175,33 +197,47 @@ export class SessionRecorder {
 			this.current = { start: index, end };
 		}
 		if (this.startedAt === null) this.startedAt = now;
+		this.closeActive(now);
+		this.lastAt = now;
+		this.lastWordAt = now;
+		this.wordsShown += count;
+	}
+
+	/** Counts the time from the previous word shown up to `now` as reading time. */
+	private closeActive(now: number): void {
 		if (this.lastAt !== null && now - this.lastAt <= MAX_WORD_GAP_MS) {
 			this.activeMs += now - this.lastAt;
 		}
-		this.lastAt = now;
-		this.lastWordAt = now;
 	}
 
-	/** Ends the current stretch (pause); the next word starts a new one unless it directly follows. */
-	pause(): void {
+	/**
+	 * Pause at `now`: the word shown last counts as read up to then. The next
+	 * word starts a new stretch unless it directly follows.
+	 */
+	pause(now: number): void {
+		this.closeActive(now);
 		this.lastAt = null;
 	}
 
 	/**
 	 * The session so far, with spans converted by `toPlain`; null when it is too
 	 * short to keep and does not reach `lastIndex` (the last word of the stream
-	 * played, before conversion). Resets the recorder.
+	 * played, before conversion). `now` is when the session ends (pause,
+	 * completion, leaving); while still playing it closes the time of the word
+	 * shown last. Resets the recorder.
 	 */
 	finish(
 		toPlain: (index: number) => number = (i) => i,
 		lastIndex = Number.POSITIVE_INFINITY,
+		now?: number,
 	): DocSession | null {
+		if (now !== undefined) this.closeActive(now);
 		if (this.current) this.spans.push(this.current);
 		const reachedEnd = this.spans.some((s) => s.end >= lastIndex);
 		const spans = mergeSpans(
 			this.spans.map((s) => ({ start: toPlain(s.start), end: toPlain(s.end) })),
 		);
-		const wordsRead = spans.reduce((n, s) => n + (s.end - s.start + 1), 0);
+		const wordsRead = this.wordsShown;
 		const startedAt = this.startedAt;
 		const endedAt = this.lastWordAt ?? Date.now();
 		const durationMs = this.activeMs;
@@ -232,5 +268,6 @@ export class SessionRecorder {
 		this.lastAt = null;
 		this.lastWordAt = null;
 		this.activeMs = 0;
+		this.wordsShown = 0;
 	}
 }
