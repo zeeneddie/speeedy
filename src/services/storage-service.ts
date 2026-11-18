@@ -1,9 +1,11 @@
 import { type IDBPDatabase, openDB } from "idb";
 import type {
+	DocSession,
 	Mark,
 	OriginalKind,
 	OriginalRef,
 	SavedDocument,
+	TocEntry,
 	UserProfile,
 } from "../models/types.js";
 import { DEFAULT_SETTINGS, getDefaultFontSize } from "./defaults.js";
@@ -269,17 +271,24 @@ export async function saveDocument(
 		const existingHash =
 			existing.contentHash ?? (await hashContent(existing.text));
 		if (existingHash === contentHash) {
-			const updated: SavedDocument = {
-				...existing,
-				savedAt: new Date().toISOString(),
-			};
-			if (!updated.pages && doc.pages) updated.pages = doc.pages;
-			if (!updated.original && originalFile) {
-				const original = await storeOriginal(db, existing.id, originalFile);
-				if (original) updated.original = original;
-			}
-			await db.put(DOCS_STORE, updated);
-			return updated;
+			const original =
+				!existing.original && originalFile
+					? await storeOriginal(db, existing.id, originalFile)
+					: null;
+			// Only this import's own fields, applied to the fresh record inside one
+			// transaction, so a session, marks or progress written meanwhile survive.
+			const updated = await updateDoc(existing.id, (fresh) => {
+				const next: SavedDocument = {
+					...fresh,
+					savedAt: new Date().toISOString(),
+				};
+				if (!next.pages && doc.pages) next.pages = doc.pages;
+				// [] means "looked, none found": keep that instead of leaving it unknown.
+				if (doc.toc && !next.toc?.length) next.toc = doc.toc;
+				if (!next.original && original) next.original = original;
+				return next;
+			});
+			if (updated) return updated;
 		}
 	}
 
@@ -324,15 +333,53 @@ export async function getOriginal(docId: string): Promise<Blob | null> {
 	}
 }
 
+/**
+ * Reads, changes and writes one document in a single transaction, so concurrent
+ * changes (progress, marks, sessions) are applied one after another instead of
+ * overwriting each other.
+ */
+async function updateDoc(
+	id: string,
+	change: (doc: SavedDocument) => SavedDocument,
+): Promise<SavedDocument | null> {
+	const db = await getDb();
+	const tx = db.transaction(DOCS_STORE, "readwrite");
+	const doc = (await tx.store.get(id)) as SavedDocument | undefined;
+	const next = doc ? change(doc) : null;
+	if (next) await tx.store.put(next);
+	await tx.done;
+	return next;
+}
+
 export async function updateDocumentProgress(
 	id: string,
 	resumeWordIndex: number,
 	completionPercent: number,
 ): Promise<void> {
-	const db = await getDb();
-	const doc = (await db.get(DOCS_STORE, id)) as SavedDocument | undefined;
-	if (!doc) return;
-	await db.put(DOCS_STORE, { ...doc, resumeWordIndex, completionPercent });
+	await updateDoc(id, (doc) => ({
+		...doc,
+		resumeWordIndex,
+		completionPercent,
+	}));
+}
+
+/** Adds a finished reading session to a document. */
+export async function appendDocumentSession(
+	id: string,
+	session: DocSession,
+): Promise<void> {
+	await updateDoc(id, (doc) => ({
+		...doc,
+		sessions: [...(doc.sessions ?? []), session],
+	}));
+}
+
+/** Stores the table of contents of a document ([] = looked, none found). */
+export async function updateDocumentToc(
+	id: string,
+	toc: TocEntry[],
+): Promise<void> {
+	await updateDoc(id, (doc) => ({ ...doc, toc }));
 }
 
 /** Replaces the marks of a document. */
@@ -340,10 +387,7 @@ export async function updateDocumentMarks(
 	id: string,
 	marks: Mark[],
 ): Promise<void> {
-	const db = await getDb();
-	const doc = (await db.get(DOCS_STORE, id)) as SavedDocument | undefined;
-	if (!doc) return;
-	await db.put(DOCS_STORE, { ...doc, marks });
+	await updateDoc(id, (doc) => ({ ...doc, marks }));
 }
 
 export async function deleteSavedDocument(id: string): Promise<void> {

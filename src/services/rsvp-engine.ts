@@ -491,6 +491,23 @@ function segmentWords(para: string): string[] {
 	return para.split(/\s+/).filter((w) => w.length > 0);
 }
 
+/**
+ * Start offset in `text` of each token that {@link tokenize} makes of it: the
+ * same word segmentation, run over the whole text. Paragraph breaks are
+ * whitespace and never part of a word, so the words come out the same.
+ */
+export function wordStarts(text: string): number[] {
+	if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+		const segmenter = new Intl.Segmenter(navigator.language || "en", {
+			granularity: "word",
+		});
+		return Array.from(segmenter.segment(text))
+			.filter((seg) => seg.isWordLike)
+			.map((seg) => seg.index);
+	}
+	return Array.from(text.matchAll(/\S+/g), (m) => m.index);
+}
+
 export function tokenize(text: string, settings?: ReaderSettings): WordToken[] {
 	const normalized = text
 		.replace(/\r\n/g, "\n")

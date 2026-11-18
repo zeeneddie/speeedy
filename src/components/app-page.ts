@@ -5,6 +5,7 @@ import type {
 	ParsedDocument,
 	SavedDocument,
 	ThemeName,
+	TocEntry,
 	UserProfile,
 } from "../models/types.js";
 import { DEFAULT_SETTINGS } from "../services/defaults.js";
@@ -41,6 +42,7 @@ export class AppPage extends LitElement {
 		text: string;
 		pages?: string[];
 		originalFile?: Blob;
+		toc?: TocEntry[];
 	} | null = null;
 	@state() private customTitle = "";
 	@state() private savedDocs: SavedDocument[] = [];
@@ -143,8 +145,13 @@ export class AppPage extends LitElement {
 		this.loadedDocTitle = doc.title;
 		this.loadedDocText = doc.text;
 		this.loadedDocExtras =
-			doc.pages || doc.originalFile
-				? { text: doc.text, pages: doc.pages, originalFile: doc.originalFile }
+			doc.pages || doc.originalFile || doc.toc
+				? {
+						text: doc.text,
+						pages: doc.pages,
+						originalFile: doc.originalFile,
+						toc: doc.toc,
+					}
 				: null;
 		this.customTitle = doc.title;
 		this.error = "";
@@ -212,6 +219,7 @@ export class AppPage extends LitElement {
 				resumeWordIndex: safeStart,
 				completionPercent,
 				pages: extras?.pages,
+				toc: extras?.toc,
 				originalFile:
 					(this.profile?.settings.originalStore ?? true)
 						? extras?.originalFile
